@@ -225,6 +225,88 @@ export const depositService = {
       saveItems(AUDIT_LOG_KEY, logs);
     }
 
+    // Process referral commission for the first deposit
+    try {
+      const referrals = getItems<any>(AGENT_REFERRALS_KEY);
+      const referral = referrals.find((r: any) => r.userId === userId);
+      if (referral && referral.status !== 'commission_paid') {
+        const users = getItems<any>(USERS_KEY);
+        const depositor = users.find((u: any) => u.id === userId);
+        if (depositor?.referrerAgentId) {
+          const agents = getItems<any>(AGENT_KEY);
+          const agent = agents.find((a: any) => a.id === depositor.referrerAgentId);
+          if (agent) {
+            // Get commission rate from Website Control or default to 30%
+            let commissionRate = 0.30;
+            try {
+              const settings = JSON.parse(localStorage.getItem('coltion_settings') || '{}');
+              if (settings.referralCommissionPercent) {
+                commissionRate = settings.referralCommissionPercent / 100;
+              }
+            } catch {}
+            
+            const commissionAmount = Math.round(amount * commissionRate);
+
+            // Update referral status
+            referral.firstDeposit = amount;
+            referral.commission = commissionAmount;
+            referral.status = 'commission_paid';
+            saveItems(AGENT_REFERRALS_KEY, referrals);
+
+            // Create commission record
+            const commissions = getItems<any>(AGENT_COMMISSIONS_KEY);
+            commissions.push({
+              id: generateId('com_'),
+              agentId: agent.id,
+              referredUserId: userId,
+              referredName: depositor.fullName,
+              depositAmount: amount,
+              commissionRate,
+              commissionAmount,
+              createdAt: new Date().toISOString(),
+            });
+            saveItems(AGENT_COMMISSIONS_KEY, commissions);
+
+            // Update agent stats
+            const wallets = getItems<any>(WALLET_KEY);
+            let agentWallet = wallets.find((w: any) => w.userId === agent.userId);
+            if (!agentWallet) {
+              agentWallet = { userId: agent.userId, main: 0, semWallet: 0, ongoing: 0 };
+              wallets.push(agentWallet);
+            }
+            const agentMainBefore = agentWallet.main;
+            agentWallet.main += commissionAmount;
+            saveItems(WALLET_KEY, wallets);
+            addWalletLedger(agent.userId, 'Main Wallet', 'Referral Commission', 'deposit_approval', depositId, commissionAmount, agentMainBefore, agentWallet.main);
+
+            agent.totalCommission = (agent.totalCommission || 0) + commissionAmount;
+            agent.qualifiedDeposits = (agent.qualifiedDeposits || 0) + 1;
+            agent.availableBalance = (agent.availableBalance || 0) + commissionAmount;
+            saveItems(AGENT_KEY, agents);
+
+            // Record commission transaction
+            const allTxs = getItems<any>(TX_KEY);
+            allTxs.push({
+              id: generateId('txn_'),
+              userId: agent.userId,
+              type: 'referral_commission',
+              amount: commissionAmount,
+              method: `Referral Commission - ${depositor.fullName}`,
+              reference: 'REFCOM-' + depositId.slice(-8).toUpperCase(),
+              status: 'success',
+              createdAt: new Date().toISOString(),
+              completedAt: new Date().toISOString(),
+            });
+            saveItems(TX_KEY, allTxs);
+
+            // Audit log
+            addAuditLog(agent.userId, depositId, `Referral Commission Paid (${commissionRate*100}%)`, '0', commissionAmount.toString(), commissionAmount);
+            addNotification(agent.userId, 'referral_commission', `You received ₱${commissionAmount.toLocaleString()} referral commission from ${depositor.fullName}'s deposit.`);
+          }
+        }
+      }
+    } catch {}
+
     // Notification
     addNotification(userId, 'deposit_approved', `Your deposit of ₱${amount.toLocaleString()} has been approved.`);
     if (bonus > 0) {
