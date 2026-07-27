@@ -1,8 +1,15 @@
 import React, { useState } from 'react';
-import type { Notification } from '../services/dashboardService';
+
+interface NotifItem {
+  id: string;
+  type: string;
+  message: string;
+  timestamp: string;
+  read: boolean;
+}
 
 interface NotificationCenterProps {
-  notifications: Notification[];
+  notifications: NotifItem[];
 }
 
 const notificationColors: Record<string, string> = {

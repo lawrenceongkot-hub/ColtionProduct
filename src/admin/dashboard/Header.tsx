@@ -1,12 +1,11 @@
 import React from 'react';
 import { NotificationCenter } from './NotificationCenter';
-import type { Notification } from '../services/dashboardService';
 
 interface HeaderProps {
   currentTime: string;
   adminName: string;
   adminRole: string;
-  notifications: Notification[];
+  notifications: any[];
   darkMode: boolean;
   onToggleDarkMode: () => void;
   onLogout: () => void;

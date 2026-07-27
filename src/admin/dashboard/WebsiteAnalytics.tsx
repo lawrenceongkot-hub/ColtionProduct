@@ -1,5 +1,10 @@
 import React from 'react';
-import type { WebsiteAnalytics as Analytics } from '../services/dashboardService';
+
+interface Analytics {
+  today: { visitors: number; registrations: number; deposits: number; withdrawals: number; vipPurchases: number };
+  weekly: { visitors: number; registrations: number; deposits: number; withdrawals: number; vipPurchases: number; growth: number };
+  monthly: { visitors: number; registrations: number; deposits: number; withdrawals: number; vipPurchases: number; growth: number };
+}
 
 interface WebsiteAnalyticsProps {
   analytics: Analytics;

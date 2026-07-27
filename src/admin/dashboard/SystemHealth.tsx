@@ -1,5 +1,12 @@
 import React from 'react';
-import type { SystemHealthStatus } from '../services/dashboardService';
+
+interface SystemHealthStatus {
+  api: boolean;
+  database: boolean;
+  queue: boolean;
+  wallet: boolean;
+  backgroundJobs: boolean;
+}
 
 interface SystemHealthProps {
   health: SystemHealthStatus;

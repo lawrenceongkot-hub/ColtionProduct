@@ -1,5 +1,15 @@
 import React from 'react';
-import type { OnlineUser } from '../services/dashboardService';
+
+interface OnlineUser {
+  id: string;
+  name: string;
+  avatar: string;
+  currentPage: string;
+  loginTime: string;
+  device: string;
+  ipAddress: string;
+  status: 'online' | 'idle';
+}
 
 interface OnlineUsersProps {
   users: OnlineUser[];

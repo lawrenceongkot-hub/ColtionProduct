@@ -1,6 +1,13 @@
 import React from 'react';
-import type { RecentActivity as RecentActivityType } from '../services/dashboardService';
-import { dashboardService } from '../services/dashboardService';
+
+interface RecentActivityType {
+  id: string;
+  type: string;
+  message: string;
+  timestamp: string;
+  icon: string;
+  color: string;
+}
 
 interface RecentActivityProps {
   activities: RecentActivityType[];
