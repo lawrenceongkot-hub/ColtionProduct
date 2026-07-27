@@ -1,8 +1,8 @@
 /**
  * Google OAuth Integration using Google Identity Services (GIS)
  * 
- * This is a frontend-only OAuth flow. No backend server required.
- * Google's Identity Services handles the token exchange client-side.
+ * Uses the Google Sign-In with ID token flow.
+ * No backend server required - Google's Identity Services handles everything client-side.
  * 
  * Setup Required:
  * 1. Go to https://console.cloud.google.com
@@ -19,23 +19,6 @@
 const USERS_KEY = 'coltion_users';
 const SESSION_KEY = 'coltion_session';
 
-// Load the Google Identity Services script
-function loadGIScript(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (typeof google !== 'undefined' && google.accounts) {
-      resolve();
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Google Identity Services'));
-    document.head.appendChild(script);
-  });
-}
-
 export interface GoogleUserData {
   id: string;
   email: string;
@@ -46,7 +29,7 @@ export interface GoogleUserData {
 export const googleAuth = {
   /**
    * Initialize Google Sign-In and return user data on success.
-   * This uses the One Tap / Popup flow.
+   * Uses the Google Identity Services credential response flow.
    */
   async signIn(): Promise<GoogleUserData> {
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -66,30 +49,54 @@ export const googleAuth = {
       );
     }
 
-    await loadGIScript();
+    // Load the Google Identity Services script
+    await new Promise<void>((resolve, reject) => {
+      if (typeof google !== 'undefined' && google.accounts) {
+        resolve();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load Google Identity Services'));
+      document.head.appendChild(script);
+    });
 
     return new Promise((resolve, reject) => {
+      // Use the credential-based flow (Google Sign-In)
       const tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: clientId,
         scope: 'openid profile email',
-        callback: async (response: any) => {
+        callback: (response: any) => {
           if (response.error) {
             reject(new Error(response.error_description || 'Google sign-in failed'));
             return;
           }
 
           try {
-            // Decode the ID token to get user info
-            const payload = JSON.parse(atob(response.id_token.split('.')[1]));
-            
-            const userData: GoogleUserData = {
-              id: payload.sub,
-              email: payload.email,
-              fullName: payload.name,
-              picture: payload.picture,
-            };
-
-            resolve(userData);
+            // Decode the ID token from the credential response
+            // The response contains an access_token, but we need to use
+            // Google's token info endpoint or decode the JWT
+            // Since we have the access_token, we can fetch user info
+            fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+              headers: { Authorization: `Bearer ${response.access_token}` }
+            })
+            .then(res => res.json())
+            .then((data: any) => {
+              if (data.error) {
+                reject(new Error(data.error_description || 'Failed to get user info'));
+                return;
+              }
+              resolve({
+                id: data.sub,
+                email: data.email,
+                fullName: data.name,
+                picture: data.picture,
+              });
+            })
+            .catch(() => reject(new Error('Failed to fetch Google user info')));
           } catch (err) {
             reject(new Error('Failed to process Google authentication'));
           }
