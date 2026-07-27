@@ -7,6 +7,7 @@ import { GlassCard } from '../components/GlassCard';
 import { colors, typography, borderRadius } from '../theme';
 import { FIELD_VALIDATION } from '../constants';
 import { useAuth } from '../context/AuthContext';
+import { googleAuth } from '../services/googleAuth';
 import type { AuthNavigation, LoginFormData, ValidationError } from '../types';
 
 interface LoginScreenProps extends AuthNavigation {
@@ -23,6 +24,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = React.memo(({ onNavigate,
   });
   const [errors, setErrors] = useState<ValidationError[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const getError = useCallback((field: string): string | undefined => {
@@ -66,6 +68,23 @@ export const LoginScreen: React.FC<LoginScreenProps> = React.memo(({ onNavigate,
     setFormData(prev => ({ ...prev, [field]: value }));
     setErrors(prev => prev.filter(e => e.field !== field));
     setAuthError(null);
+  }, []);
+
+  const handleGoogleLogin = useCallback(async () => {
+    setGoogleLoading(true);
+    setAuthError(null);
+    try {
+      // This will trigger Google OAuth popup
+      // Requires VITE_GOOGLE_CLIENT_ID environment variable
+      const result = await googleAuth.loginWithGoogle();
+      if (result.user) {
+        // Reload the page to pick up the new session
+        window.location.reload();
+      }
+    } catch (err: any) {
+      setAuthError(err.message || 'Google sign-in failed');
+      setGoogleLoading(false);
+    }
   }, []);
 
   return (
@@ -344,7 +363,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = React.memo(({ onNavigate,
                   variant="secondary"
                   size="md"
                   fullWidth
-                  onClick={() => {}}
+                  loading={googleLoading}
+                  onClick={handleGoogleLogin}
                   icon={
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                       <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
