@@ -7,6 +7,10 @@ const AUDIT_LOG_KEY = 'coltion_audit_log';
 const NOTIFICATIONS_KEY = 'coltion_notifications';
 const ADMIN_SESSION_KEY = 'coltion_admin_session';
 const SESSION_KEY = 'coltion_session';
+const USERS_KEY = 'coltion_users';
+const AGENT_REFERRALS_KEY = 'coltion_agent_referrals';
+const AGENT_COMMISSIONS_KEY = 'coltion_agent_commissions';
+const AGENT_KEY = 'coltion_agents';
 
 // ==================== HELPERS ====================
 function getItems<T>(key: string): T[] {

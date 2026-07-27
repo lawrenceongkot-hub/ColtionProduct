@@ -30,7 +30,8 @@ function saveReferrals(referrals: ReferralRecord[]): void {
  * Uses crypto.getRandomValues for cryptographic randomness.
  */
 function generateInvitationCode(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  // Exactly 8 characters: uppercase A-Z + numbers 0-9, no special chars
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   const array = new Uint8Array(8);
   crypto.getRandomValues(array);
   let code = '';
