@@ -2,6 +2,7 @@ import type { User, LoginFormData, RegisterFormData } from '../types';
 import { generateUniqueCode, getAllInvitationCodes, recordReferral } from './referralService';
 import { registrationGuard } from './registrationGuard';
 import { agentService } from './agentService';
+import { getReferralLink } from '../utils/domain';
 
 // Notify dashboard of login/logout for real online user tracking
 function recordLoginSession(userId: string): void {
@@ -77,7 +78,7 @@ function migrateUser(user: StoredUser): StoredUser {
     const existingCodes = getAllInvitationCodes();
     const invitationCode = generateUniqueCode(existingCodes);
     migrated.invitationCode = invitationCode;
-    migrated.invitationLink = `https://coltionproduct.com/register?ref=${invitationCode}`;
+    migrated.invitationLink = getReferralLink(invitationCode);
     migrated.invitedBy = migrated.invitedBy || null;
     migrated.referralCount = migrated.referralCount || 0;
     migrated.totalReferralEarnings = migrated.totalReferralEarnings || 0;
@@ -157,7 +158,7 @@ export const authService = {
       invitedBy = code;
     }
 
-    const invitationLink = `https://coltionproduct.com/register?ref=${invitationCode}`;
+    const invitationLink = getReferralLink(invitationCode);
 
     const newUser: StoredUser = {
       id: generateId(),

@@ -1,5 +1,6 @@
 import type { AgentProfile, AgentReferral, AgentCommission } from '../types';
 import { walletService } from './walletService';
+import { getReferralLink } from '../utils/domain';
 
 const AGENT_KEY = 'coltion_agents';
 const AGENT_REFERRALS_KEY = 'coltion_agent_referrals';
@@ -47,7 +48,7 @@ export const agentService = {
         id: 'agt_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
         userId,
         agentCode: finalCode,
-        agentLink: `https://coltionproduct.com/register?ref=${finalCode}`,
+        agentLink: getReferralLink(finalCode),
         totalCommission: 0,
         totalReferrals: 0,
         qualifiedDeposits: 0,
