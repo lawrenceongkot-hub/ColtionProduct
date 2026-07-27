@@ -4,6 +4,7 @@ import { colors, typography, borderRadius, shadows } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { getReferralStats } from '../services/referralService';
 import { useResponsive } from '../hooks/useResponsive';
+import { getReferralLink } from '../utils/domain';
 import type { ReferralStats } from '../types';
 
 export const InviteSection: React.FC = React.memo(() => {
@@ -24,8 +25,9 @@ export const InviteSection: React.FC = React.memo(() => {
     }
   }, [user]);
 
-  const invitationLink = user?.invitationLink || '';
+  // Generate invitation link dynamically from the code (never use stored URL which may have old domain)
   const invitationCode = user?.invitationCode || '';
+  const invitationLink = invitationCode ? getReferralLink(invitationCode) : '';
 
   const copyToClipboard = useCallback(async (text: string, type: 'code' | 'link') => {
     try {
