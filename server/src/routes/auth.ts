@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../db';
-import { generateTokens } from '../middleware/auth.js';
+import { generateTokens } from '../middleware/auth';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 
 export const authRouter = Router();

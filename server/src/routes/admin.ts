@@ -1,8 +1,8 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import prisma from '../db.js';
-import { AuthRequest, authenticateToken, requireAdmin } from '../middleware/auth.js';
+import prisma from '../db';
+import { AuthRequest, authenticateToken, requireAdmin } from '../middleware/auth';
 
 export const adminRouter = Router();
 

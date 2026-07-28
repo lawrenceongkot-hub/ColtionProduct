@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import prisma from '../db.js';
-import { AuthRequest } from '../middleware/auth.js';
+import prisma from '../db';
+import { AuthRequest } from '../middleware/auth';
 
 export const adminAgentsRouter = Router();
 

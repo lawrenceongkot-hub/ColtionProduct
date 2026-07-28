@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
-import prisma from '../db.js';
-import { AuthRequest } from '../middleware/auth.js';
+import prisma from '../db';
+import { AuthRequest } from '../middleware/auth';
 
 export const dashboardRouter = Router();
 
