@@ -11,6 +11,7 @@ import { OrderSection } from '../sections/OrderSection';
 import { InviteSection } from '../sections/InviteSection';
 import { AccountSection } from '../sections/AccountSection';
 import { MaintenancePage } from '../screens/MaintenancePage';
+import { settingsEnforcer } from '../services/settingsEnforcer';
 
 type Section = 'home' | 'order' | 'invite' | 'account';
 
@@ -21,30 +22,17 @@ export const AppLayout: React.FC = React.memo(() => {
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
 
-  // Check maintenance mode on mount and when settings change
+  // Check maintenance mode from backend API
   useEffect(() => {
-    const checkMaintenance = () => {
+    const checkMaintenance = async () => {
       try {
-        const settings = JSON.parse(localStorage.getItem('coltion_settings') || '{}');
-        if (settings.maintenanceMode) {
-          const adminSession = localStorage.getItem('coltion_admin_session');
-          if (!adminSession) {
-            setMaintenanceMode(true);
-            return;
-          }
-        }
-        setMaintenanceMode(false);
+        const result = await settingsEnforcer.isMaintenanceMode();
+        setMaintenanceMode(result.blocked);
       } catch {
         setMaintenanceMode(false);
       }
     };
     checkMaintenance();
-    window.addEventListener('settings:updated', checkMaintenance);
-    window.addEventListener('dashboard:update', checkMaintenance);
-    return () => {
-      window.removeEventListener('settings:updated', checkMaintenance);
-      window.removeEventListener('dashboard:update', checkMaintenance);
-    };
   }, []);
 
   if (maintenanceMode) {

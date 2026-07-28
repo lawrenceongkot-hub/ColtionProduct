@@ -4,15 +4,49 @@ import { apiService } from './api';
 /**
  * Transaction service - reads from backend API.
  * No localStorage used.
+ * createDeposit and confirmDeposit are placeholders that work with the backend API.
  */
 
 export const transactionService = {
-  async getUserTransactions(): Promise<Transaction[]> {
+  async createDeposit(userId: string, method: string, amount: number): Promise<Transaction> {
+    try {
+      const deposit = await apiService.post<any>('/deposits', { amount, method });
+      return {
+        id: deposit.id,
+        userId,
+        type: 'deposit' as Transaction['type'],
+        amount,
+        method,
+        reference: deposit.reference,
+        status: 'pending' as Transaction['status'],
+        createdAt: new Date().toISOString(),
+        completedAt: null,
+      };
+    } catch {
+      throw new Error('Failed to create deposit');
+    }
+  },
+
+  async confirmDeposit(txId: string, userId: string, amount: number): Promise<void> {
+    // Deposits are confirmed by admin in the admin panel
+    // This is a client-side simulation
+    return;
+  },
+
+  async getTransactions(): Promise<Transaction[]> {
     try {
       const txs = await apiService.get<any[]>('/transactions');
       return txs.map(tx => ({
-        ...tx,
+        id: tx.id,
+        userId: tx.userId,
+        type: tx.type?.toLowerCase() as Transaction['type'],
+        amount: tx.amount,
+        method: tx.method || '',
+        walletNumber: tx.walletNumber,
+        reference: tx.reference,
         status: tx.status?.toLowerCase() as Transaction['status'],
+        createdAt: tx.createdAt,
+        completedAt: tx.completedAt,
       }));
     } catch {
       return [];

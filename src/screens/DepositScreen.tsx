@@ -11,21 +11,11 @@ interface DepositScreenProps {
   onBack: () => void;
 }
 
-// Get enabled payment methods from Website Control settings
-function getEnabledPaymentMethods(): { id: string; label: string; icon: string }[] {
-  const allMethods = [
-    { id: 'GCash', label: 'GCash', icon: 'G' },
-    { id: 'Maya', label: 'Maya', icon: 'M' },
-    { id: 'QRPH', label: 'QRPH', icon: 'Q' },
-  ];
-  try {
-    const settings = JSON.parse(localStorage.getItem('coltion_settings') || '{}');
-    if (settings.paymentMethods) {
-      return allMethods.filter(m => settings.paymentMethods[m.id] !== false);
-    }
-  } catch {}
-  return allMethods;
-}
+const PAYMENT_METHODS = [
+  { id: 'GCash', label: 'GCash', icon: 'G' },
+  { id: 'Maya', label: 'Maya', icon: 'M' },
+  { id: 'QRPH', label: 'QRPH', icon: 'Q' },
+];
 
 const QUICK_AMOUNTS = [100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000, 50000];
 const MIN_DEPOSIT = 100;
@@ -33,7 +23,6 @@ const MAX_DEPOSIT = 50000;
 
 export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack }) => {
   const { user } = useAuth();
-  const PAYMENT_METHODS = React.useMemo(() => getEnabledPaymentMethods(), []);
   const [method, setMethod] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [selectedQuick, setSelectedQuick] = useState<number | null>(null);
@@ -74,8 +63,12 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
     if (!user || !method) return;
     setIsProcessing(true);
     await new Promise(resolve => setTimeout(resolve, 1500));
-    const tx = transactionService.createDeposit(user.id, method, numericAmount);
-    setResult({ ref: tx.reference, id: tx.id });
+    try {
+      const tx = await transactionService.createDeposit(user.id, method, numericAmount);
+      setResult({ ref: tx.reference, id: tx.id });
+    } catch (e: any) {
+      setCustomError(e.message || 'Failed to create deposit');
+    }
     setIsProcessing(false);
   }, [user, method, numericAmount]);
 
@@ -145,7 +138,6 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
               </motion.div>
             ) : (
               <>
-                {/* Payment Methods */}
                 <p style={{ fontSize: typography.sm, fontWeight: typography.semibold, color: colors.textSecondary, fontFamily: typography.fontFamily }}>Select Payment Method</p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
                   {PAYMENT_METHODS.map(pm => (
@@ -169,7 +161,6 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
                   ))}
                 </div>
 
-                {/* Amount Input */}
                 <div>
                   <p style={{ fontSize: typography.sm, fontWeight: typography.semibold, color: colors.textSecondary, fontFamily: typography.fontFamily, marginBottom: '8px' }}>Enter Amount</p>
                   <div style={{
@@ -189,7 +180,6 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
                   </div>
                 </div>
 
-                {/* Quick Amounts */}
                 <div>
                   <p style={{ fontSize: typography.sm, fontWeight: typography.semibold, color: colors.textSecondary, fontFamily: typography.fontFamily, marginBottom: '8px' }}>Quick Amount</p>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
@@ -210,7 +200,6 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
                   </div>
                 </div>
 
-                {/* Error */}
                 <AnimatePresence mode="wait">
                   {customError && (
                     <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}

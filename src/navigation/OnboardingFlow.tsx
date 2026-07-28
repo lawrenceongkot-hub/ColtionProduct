@@ -10,6 +10,7 @@ import { MaintenancePage } from '../screens/MaintenancePage';
 import { AppLayout } from '../layouts/AppLayout';
 import { PrivacyPolicyScreen } from '../screens/PrivacyPolicyScreen';
 import { TermsScreen } from '../screens/TermsScreen';
+import { settingsEnforcer } from '../services/settingsEnforcer';
 
 type Screen = 'splash' | 'loading' | 'auth' | 'login' | 'register' | 'home';
 type Modal = 'privacy' | 'terms' | null;
@@ -27,18 +28,14 @@ export const OnboardingFlow: React.FC = React.memo(() => {
       if (isAuthenticated) {
         setCurrentScreen('home');
       } else {
-        // Check maintenance mode
-        try {
-          const settings = JSON.parse(localStorage.getItem('coltion_settings') || '{}');
-          if (settings.maintenanceMode) {
-            const adminSession = localStorage.getItem('coltion_admin_session');
-            if (!adminSession) {
-              setMaintenanceBlocked(settings.maintenanceMessage || 'Website Under Maintenance');
-              return;
-            }
+        // Check maintenance mode from backend
+        settingsEnforcer.isMaintenanceMode().then(result => {
+          if (result.blocked) {
+            setMaintenanceBlocked(result.message);
+          } else {
+            setCurrentScreen('splash');
           }
-        } catch {}
-        setCurrentScreen('splash');
+        });
       }
     }
   }, [isAuthenticated, isLoading]);
