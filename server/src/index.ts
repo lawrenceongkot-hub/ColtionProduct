@@ -45,23 +45,20 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 
 // Root
-app.get('/', (_req: express.Request, res: express.Response) => {
+app.get('/', (_req, res) => {
   res.json({ name: 'Coltion API', version: '1.0.0', status: 'running' });
 });
 
 // Health check
-app.get('/api/health', (_req: express.Request, res: express.Response) => {
+app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Public routes
-console.log('Registering auth routes...');
 app.use('/api/auth', authRouter);
-console.log('Registering settings routes...');
 app.use('/api/settings', settingsRouter);
 
 // Protected routes
-console.log('Registering protected routes...');
 app.use('/api/wallet', authenticateToken, walletRouter);
 app.use('/api/deposits', authenticateToken, depositRouter);
 app.use('/api/withdrawals', authenticateToken, withdrawalRouter);
@@ -75,41 +72,50 @@ app.use('/api/ewallets', authenticateToken, ewalletRouter);
 app.use('/api/dashboard', authenticateToken, dashboardRouter);
 
 // Admin routes
-console.log('Registering admin routes...');
 app.use('/api/admin', adminRouter);
 app.use('/api/admin/agents', authenticateToken, adminAgentsRouter);
 
-console.log('ALL ROUTES REGISTERED');
+// Route debug - simple manual list
+const ROUTE_LIST = [
+  'GET /',
+  'GET /api/health',
+  'GET /api/settings',
+  'POST /api/auth/register',
+  'POST /api/auth/login',
+  'POST /api/auth/refresh',
+  'POST /api/auth/logout',
+  'POST /api/auth/google',
+  'GET /api/auth/me',
+  'GET /api/wallet',
+  'POST /api/deposits',
+  'POST /api/withdrawals',
+  'POST /api/orders/purchase',
+  'GET /api/orders',
+  'GET /api/transactions',
+  'GET /api/referrals',
+  'PUT /api/users/profile',
+  'PUT /api/users/password',
+  'POST /api/verification',
+  'POST /api/verification/verify',
+  'GET /api/agents/profile',
+  'GET /api/agents/referrals',
+  'GET /api/agents/commissions',
+  'GET/POST/DELETE /api/ewallets',
+  'GET /api/dashboard',
+  'POST /api/admin/login',
+  'GET /api/admin/dashboard',
+  'GET /api/admin/users',
+  'GET /api/admin/deposits',
+  'GET /api/admin/withdrawals',
+  'GET /api/admin/orders',
+  'GET /api/admin/transactions',
+  'GET /api/admin/verifications',
+  'GET/PUT /api/admin/settings',
+  'GET/PUT /api/admin/agents/*',
+];
 
-// Route debug - simple approach
-app.get('/api/debug/routes', (_req: express.Request, res: express.Response) => {
-  const routes: string[] = [];
-  if (app._router && app._router.stack) {
-    app._router.stack.forEach((layer: any) => {
-      if (layer.route) {
-        const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
-        routes.push(`${methods} ${layer.route.path}`);
-      } else if (layer.name === 'router' && layer.handle && layer.handle.stack) {
-        // Get the mount path from the regexp
-        let mountPath = '';
-        if (layer.regexp) {
-          const str = layer.regexp.toString();
-          // Extract path from regex like /^\/api\/auth\/?(?=\/|$)/i
-          const match = str.match(/\/\^\\\?(.*?)\\\/\?/);
-          if (match) {
-            mountPath = match[1].replace(/\\\//g, '/');
-          }
-        }
-        layer.handle.stack.forEach((handler: any) => {
-          if (handler.route) {
-            const methods = Object.keys(handler.route.methods).join(', ').toUpperCase();
-            routes.push(`${methods} ${mountPath}${handler.route.path}`);
-          }
-        });
-      }
-    });
-  }
-  res.json({ routes: routes.sort(), count: routes.length });
+app.get('/api/debug/routes', (_req, res) => {
+  res.json({ routes: ROUTE_LIST, count: ROUTE_LIST.length, stackSize: app._router?.stack?.length || 0 });
 });
 
 export default app;
