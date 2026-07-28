@@ -24,7 +24,7 @@ dotenv.config();
 
 const app = express();
 
-// CORS: Allow both production and development
+// CORS
 const allowedOrigins = [
   process.env.FRONTEND_URL || 'http://localhost:5173',
   'http://localhost:5173',
@@ -37,21 +37,21 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(null, true); // Allow all in dev
+      callback(null, true);
     }
   },
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
 
-// Health check
-app.get('/api/health', (_req: express.Request, res: express.Response) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
 // Root
 app.get('/', (_req: express.Request, res: express.Response) => {
   res.json({ name: 'Coltion API', version: '1.0.0', status: 'running' });
+});
+
+// Health check
+app.get('/api/health', (_req: express.Request, res: express.Response) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Public routes
@@ -75,40 +75,42 @@ app.use('/api/dashboard', authenticateToken, dashboardRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/admin/agents', authenticateToken, adminAgentsRouter);
 
-// Debug: List all registered routes
+// Route debug
 app.get('/api/debug/routes', (_req: express.Request, res: express.Response) => {
-  const routes: string[] = [];
-  app._router?.stack?.forEach((middleware: any) => {
-    if (middleware.route) {
-      const methods = Object.keys(middleware.route.methods).join(', ').toUpperCase();
-      routes.push(`${methods} ${middleware.route.path}`);
-    } else if (middleware.name === 'router' || middleware.handle?.stack) {
-      const prefix = middleware.regexp?.source?.replace(/\\\/\^\\\?\\\?\\\/\?\\\?\\\/\?\\\?/g, '')?.replace(/\\\/i\$/g, '')?.replace(/\\\//g, '/') || '';
-      middleware.handle?.stack?.forEach((handler: any) => {
-        if (handler.route) {
-          const methods = Object.keys(handler.route.methods).join(', ').toUpperCase();
-          routes.push(`${methods} ${prefix}${handler.route.path}`);
+  const routeList: string[] = [];
+  const printRoutes = (stack: any[], basePath: string = '') => {
+    stack?.forEach((layer: any) => {
+      if (layer.route) {
+        const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
+        routeList.push(`${methods} ${basePath}${layer.route.path}`);
+      } else if (layer.name === 'router' && layer.handle?.stack) {
+        // Get the path from the regexp
+        let routerPath = '';
+        if (layer.regexp) {
+          const match = layer.regexp.toString().match(/\/\^\\\?(.*?)\\\/\?\$\/i/);
+          if (match) {
+            routerPath = '/' + match[1].replace(/\\\//g, '/').replace(/\(\?:\(\[\^\\\/\]\?\)\?\)/g, ':param');
+          }
         }
-      });
-    }
-  });
-  res.json({ routes, count: routes.length });
+        printRoutes(layer.handle.stack, routerPath);
+      }
+    });
+  };
+  printRoutes(app._router?.stack || []);
+  res.json({ routes: routeList.sort(), count: routeList.length });
 });
 
-// Export for Vercel serverless
 export default app;
 
-// Socket.IO for local development only
+// Socket.IO for local dev
 const httpServer = createServer(app);
 export const io = new SocketIOServer();
-
 io.attach(httpServer, {
   cors: {
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     methods: ['GET', 'POST'],
   },
 });
-
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
   socket.on('join:user', (userId: string) => socket.join(`user:${userId}`));
@@ -116,7 +118,6 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
 });
 
-// Only listen when not in serverless (Vercel)
 const PORT = parseInt(process.env.PORT || '3001');
 if (process.env.VERCEL !== '1') {
   httpServer.listen(PORT, () => {
@@ -125,7 +126,6 @@ if (process.env.VERCEL !== '1') {
   });
 }
 
-// Graceful shutdown
 process.on('SIGTERM', () => {
   httpServer.close();
   process.exit(0);
