@@ -1,9 +1,10 @@
 /**
  * Admin API Client - all operations go through backend API.
  * No localStorage used. Admin token stored in sessionStorage.
+ * Uses Vite proxy in development, direct URL in production.
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 let adminToken: string | null = null;
 
@@ -43,7 +44,14 @@ async function api<T = any>(path: string, options: RequestInit = {}): Promise<T>
     headers,
   });
 
-  const data = await res.json();
+  const text = await res.text();
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { error: text || `Request failed with status ${res.status}` };
+  }
+
   if (!res.ok) {
     throw new Error(data.error || `Request failed with status ${res.status}`);
   }

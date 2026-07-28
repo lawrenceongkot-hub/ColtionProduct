@@ -2,9 +2,10 @@
  * API Client - Centralized HTTP client for all backend API calls.
  * Handles JWT token storage, auto-refresh, and consistent error handling.
  * Tokens are stored in memory only (sessionStorage for page refreshes).
+ * Uses Vite proxy in development, direct URL in production.
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
@@ -92,7 +93,14 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
     }
   }
 
-  const data = await res.json();
+  // Handle empty responses
+  const text = await res.text();
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { error: text || `Request failed with status ${res.status}` };
+  }
 
   if (!res.ok) {
     throw new Error(data.error || `Request failed with status ${res.status}`);
