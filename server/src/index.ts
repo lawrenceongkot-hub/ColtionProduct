@@ -23,19 +23,23 @@ import { authenticateToken } from './middleware/auth.js';
 dotenv.config();
 
 const app = express();
-const httpServer = createServer(app);
 
-export const io = new SocketIOServer();
-
-io.attach(httpServer, {
-  cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-    methods: ['GET', 'POST'],
-  },
-});
+// CORS: Allow both production and development
+const allowedOrigins = [
+  process.env.FRONTEND_URL || 'http://localhost:5173',
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'https://coltionproduct.vercel.app',
+];
 
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all in dev
+    }
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
@@ -43,6 +47,11 @@ app.use(express.json({ limit: '10mb' }));
 // Health check
 app.get('/api/health', (_req: express.Request, res: express.Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Root
+app.get('/', (_req: express.Request, res: express.Response) => {
+  res.json({ name: 'Coltion API', version: '1.0.0', status: 'running' });
 });
 
 // Public routes
@@ -66,29 +75,35 @@ app.use('/api/dashboard', authenticateToken, dashboardRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/admin/agents', authenticateToken, adminAgentsRouter);
 
-// Socket.IO connection handling
+// Export for Vercel serverless
+export default app;
+
+// Socket.IO for local development only
+const httpServer = createServer(app);
+export const io = new SocketIOServer();
+
+io.attach(httpServer, {
+  cors: {
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    methods: ['GET', 'POST'],
+  },
+});
+
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
-
-  socket.on('join:user', (userId: string) => {
-    socket.join(`user:${userId}`);
-  });
-
-  socket.on('join:admin', () => {
-    socket.join('admin');
-  });
-
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
-  });
+  socket.on('join:user', (userId: string) => socket.join(`user:${userId}`));
+  socket.on('join:admin', () => socket.join('admin'));
+  socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
 });
 
+// Only listen when not in serverless (Vercel)
 const PORT = parseInt(process.env.PORT || '3001');
-
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
-});
+if (process.env.VERCEL !== '1') {
+  httpServer.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+  });
+}
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
