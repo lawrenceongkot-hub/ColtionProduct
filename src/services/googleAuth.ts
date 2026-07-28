@@ -20,6 +20,7 @@ import { generateUniqueCode, getAllInvitationCodes } from './referralService';
 import { getReferralLink } from '../utils/domain';
 import { agentService } from './agentService';
 import { registrationGuard } from './registrationGuard';
+import { setTokens } from './api';
 
 const USERS_KEY = 'coltion_users';
 const SESSION_KEY = 'coltion_session';
@@ -226,6 +227,9 @@ export const googleAuth = {
     // Create session
     const { password: _, ...safeUser } = existingUser;
     localStorage.setItem(SESSION_KEY, JSON.stringify(safeUser));
+
+    // Set JWT tokens for API client (so AuthContext recognizes the session on reload)
+    setTokens(safeUser.id, safeUser.id + '_refresh');
 
     // Notify dashboard
     try { window.dispatchEvent(new CustomEvent('dashboard:update')); } catch {}
