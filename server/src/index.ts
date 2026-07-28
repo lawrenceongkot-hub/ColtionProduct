@@ -75,6 +75,26 @@ app.use('/api/dashboard', authenticateToken, dashboardRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/admin/agents', authenticateToken, adminAgentsRouter);
 
+// Debug: List all registered routes
+app.get('/api/debug/routes', (_req: express.Request, res: express.Response) => {
+  const routes: string[] = [];
+  app._router?.stack?.forEach((middleware: any) => {
+    if (middleware.route) {
+      const methods = Object.keys(middleware.route.methods).join(', ').toUpperCase();
+      routes.push(`${methods} ${middleware.route.path}`);
+    } else if (middleware.name === 'router' || middleware.handle?.stack) {
+      const prefix = middleware.regexp?.source?.replace(/\\\/\^\\\?\\\?\\\/\?\\\?\\\/\?\\\?/g, '')?.replace(/\\\/i\$/g, '')?.replace(/\\\//g, '/') || '';
+      middleware.handle?.stack?.forEach((handler: any) => {
+        if (handler.route) {
+          const methods = Object.keys(handler.route.methods).join(', ').toUpperCase();
+          routes.push(`${methods} ${prefix}${handler.route.path}`);
+        }
+      });
+    }
+  });
+  res.json({ routes, count: routes.length });
+});
+
 // Export for Vercel serverless
 export default app;
 
