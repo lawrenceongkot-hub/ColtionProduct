@@ -3,22 +3,22 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import dotenv from 'dotenv';
-import { authRouter } from './routes/auth.js';
-import { adminRouter } from './routes/admin.js';
-import { walletRouter } from './routes/wallet.js';
-import { depositRouter } from './routes/deposit.js';
-import { withdrawalRouter } from './routes/withdrawal.js';
-import { orderRouter } from './routes/order.js';
-import { transactionRouter } from './routes/transaction.js';
-import { referralRouter } from './routes/referral.js';
-import { settingsRouter } from './routes/settings.js';
-import { userRouter } from './routes/user.js';
-import { verificationRouter } from './routes/verification.js';
-import { agentRouter } from './routes/agent.js';
-import { ewalletRouter } from './routes/ewallet.js';
-import { dashboardRouter } from './routes/dashboard.js';
-import { adminAgentsRouter } from './routes/adminAgents.js';
-import { authenticateToken } from './middleware/auth.js';
+import { authRouter } from './routes/auth';
+import { adminRouter } from './routes/admin';
+import { walletRouter } from './routes/wallet';
+import { depositRouter } from './routes/deposit';
+import { withdrawalRouter } from './routes/withdrawal';
+import { orderRouter } from './routes/order';
+import { transactionRouter } from './routes/transaction';
+import { referralRouter } from './routes/referral';
+import { settingsRouter } from './routes/settings';
+import { userRouter } from './routes/user';
+import { verificationRouter } from './routes/verification';
+import { agentRouter } from './routes/agent';
+import { ewalletRouter } from './routes/ewallet';
+import { dashboardRouter } from './routes/dashboard';
+import { adminAgentsRouter } from './routes/adminAgents';
+import { authenticateToken } from './middleware/auth';
 
 dotenv.config();
 
@@ -55,10 +55,13 @@ app.get('/api/health', (_req: express.Request, res: express.Response) => {
 });
 
 // Public routes
+console.log('Registering auth routes...');
 app.use('/api/auth', authRouter);
+console.log('Registering settings routes...');
 app.use('/api/settings', settingsRouter);
 
 // Protected routes
+console.log('Registering protected routes...');
 app.use('/api/wallet', authenticateToken, walletRouter);
 app.use('/api/deposits', authenticateToken, depositRouter);
 app.use('/api/withdrawals', authenticateToken, withdrawalRouter);
@@ -72,32 +75,41 @@ app.use('/api/ewallets', authenticateToken, ewalletRouter);
 app.use('/api/dashboard', authenticateToken, dashboardRouter);
 
 // Admin routes
+console.log('Registering admin routes...');
 app.use('/api/admin', adminRouter);
 app.use('/api/admin/agents', authenticateToken, adminAgentsRouter);
 
-// Route debug
+console.log('ALL ROUTES REGISTERED');
+
+// Route debug - simple approach
 app.get('/api/debug/routes', (_req: express.Request, res: express.Response) => {
-  const routeList: string[] = [];
-  const printRoutes = (stack: any[], basePath: string = '') => {
-    stack?.forEach((layer: any) => {
+  const routes: string[] = [];
+  if (app._router && app._router.stack) {
+    app._router.stack.forEach((layer: any) => {
       if (layer.route) {
         const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
-        routeList.push(`${methods} ${basePath}${layer.route.path}`);
-      } else if (layer.name === 'router' && layer.handle?.stack) {
-        // Get the path from the regexp
-        let routerPath = '';
+        routes.push(`${methods} ${layer.route.path}`);
+      } else if (layer.name === 'router' && layer.handle && layer.handle.stack) {
+        // Get the mount path from the regexp
+        let mountPath = '';
         if (layer.regexp) {
-          const match = layer.regexp.toString().match(/\/\^\\\?(.*?)\\\/\?\$\/i/);
+          const str = layer.regexp.toString();
+          // Extract path from regex like /^\/api\/auth\/?(?=\/|$)/i
+          const match = str.match(/\/\^\\\?(.*?)\\\/\?/);
           if (match) {
-            routerPath = '/' + match[1].replace(/\\\//g, '/').replace(/\(\?:\(\[\^\\\/\]\?\)\?\)/g, ':param');
+            mountPath = match[1].replace(/\\\//g, '/');
           }
         }
-        printRoutes(layer.handle.stack, routerPath);
+        layer.handle.stack.forEach((handler: any) => {
+          if (handler.route) {
+            const methods = Object.keys(handler.route.methods).join(', ').toUpperCase();
+            routes.push(`${methods} ${mountPath}${handler.route.path}`);
+          }
+        });
       }
     });
-  };
-  printRoutes(app._router?.stack || []);
-  res.json({ routes: routeList.sort(), count: routeList.length });
+  }
+  res.json({ routes: routes.sort(), count: routes.length });
 });
 
 export default app;
