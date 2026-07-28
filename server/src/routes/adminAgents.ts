@@ -5,61 +5,22 @@ import { AuthRequest } from '../middleware/auth';
 
 export const adminAgentsRouter = Router();
 
-// Get all agents with stats
+// Get all agents with stats (using raw query to avoid Prisma include issues)
 adminAgentsRouter.get('/', async (_req: AuthRequest, res: Response) => {
   try {
-    const agents = await prisma.agentProfile.findMany({
-      orderBy: { totalReferrals: 'desc' },
-      include: {
-        user: {
-          select: {
-            id: true, fullName: true, email: true, phone: true,
-            createdAt: true, referralCount: true,
-          },
-        },
-        referrals: {
-          include: {
-            user: { select: { id: true, fullName: true, email: true } },
-          },
-        },
-        commissions: true,
-      },
-    });
+    const agents = await prisma.$queryRaw`
+      SELECT 
+        ap.*,
+        u."fullName", u."email", u."phone", u."createdAt" as "registrationDate", u."referralCount",
+        (SELECT COALESCE(COUNT(*), 0) FROM "AgentReferral" ar WHERE ar."agentId" = ap.id) as "totalReferrals",
+        (SELECT COALESCE(SUM(ar."firstDeposit"), 0) FROM "AgentReferral" ar WHERE ar."agentId" = ap.id) as "totalDepositsGenerated",
+        (SELECT COALESCE(SUM(ac."commissionAmount"), 0) FROM "AgentCommission" ac WHERE ac."agentId" = ap.id) as "totalCommission"
+      FROM "AgentProfile" ap
+      JOIN "User" u ON u.id = ap."userId"
+      ORDER BY ap."totalReferrals" DESC
+    `;
 
-    const result = agents.map(agent => {
-      const totalDeposits = agent.referrals.reduce((sum, r) => sum + (r.firstDeposit || 0), 0);
-      const activeReferrals = agent.referrals.filter(r => r.status === 'COMMISSION_PAID').length;
-      const pendingCommissions = agent.commissions
-        .filter(c => c.commissionAmount > 0)
-        .reduce((sum, c) => sum + c.commissionAmount, 0);
-      const paidCommissions = agent.totalCommission;
-
-      return {
-        id: agent.id,
-        userId: agent.userId,
-        agentCode: agent.agentCode,
-        agentLink: agent.agentLink,
-        fullName: agent.user.fullName,
-        email: agent.user.email,
-        phone: agent.user.phone || '',
-        status: (agent as any).status || 'active',
-        registrationDate: agent.user.createdAt,
-        totalInvitedUsers: agent.totalReferrals,
-        activeReferrals,
-        totalDepositsGenerated: totalDeposits,
-        totalReferralCommission: agent.totalCommission,
-        pendingCommission: pendingCommissions - paidCommissions,
-        paidCommission: paidCommissions,
-        availableCommissionWallet: agent.availableBalance,
-        lastCommissionDate: agent.commissions.length > 0
-          ? agent.commissions.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0].createdAt
-          : null,
-        lastLogin: null,
-        referralCount: agent.user.referralCount,
-      };
-    });
-
-    res.json(result);
+    res.json(agents || []);
   } catch (error) {
     console.error('Get agents error:', error);
     res.status(500).json({ error: 'Failed to get agents' });
@@ -69,37 +30,36 @@ adminAgentsRouter.get('/', async (_req: AuthRequest, res: Response) => {
 // Get single agent profile with full details
 adminAgentsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
+    const id = req.params.id as string;
     const agent = await prisma.agentProfile.findUnique({
-      where: { id: req.params.id },
-      include: {
-        user: {
-          select: {
-            id: true, fullName: true, email: true, phone: true,
-            invitationCode: true, invitationLink: true,
-            createdAt: true, referralCount: true, totalReferralEarnings: true,
-          },
-        },
-        referrals: {
-          include: {
-            user: {
-              select: {
-                id: true, fullName: true, email: true,
-                orders: { select: { vipName: true, status: true } },
-              },
-            },
-          },
-          orderBy: { registeredDate: 'desc' },
-        },
-        commissions: {
-          orderBy: { createdAt: 'desc' },
-        },
+      where: { id },
+    });
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const user = await prisma.user.findUnique({
+      where: { id: agent.userId },
+      select: {
+        id: true, fullName: true, email: true, phone: true,
+        invitationCode: true, invitationLink: true,
+        createdAt: true, referralCount: true, totalReferralEarnings: true,
       },
     });
 
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    const referrals = await prisma.agentReferral.findMany({
+      where: { agentId: id },
+      include: {
+        user: { select: { id: true, fullName: true, email: true } },
+      },
+      orderBy: { registeredDate: 'desc' },
+    });
 
-    const totalDeposits = agent.referrals.reduce((sum, r) => sum + (r.firstDeposit || 0), 0);
-    const firstDeposits = agent.referrals.filter(r => r.firstDeposit !== null).length;
+    const commissions = await prisma.agentCommission.findMany({
+      where: { agentId: id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const totalDeposits = referrals.reduce((sum, r) => sum + (r.firstDeposit || 0), 0);
+    const firstDeposits = referrals.filter(r => r.firstDeposit !== null).length;
     const conversionRate = agent.totalReferrals > 0 ? (firstDeposits / agent.totalReferrals) * 100 : 0;
 
     res.json({
@@ -111,10 +71,10 @@ adminAgentsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
       totalReferrals: agent.totalReferrals,
       qualifiedDeposits: agent.qualifiedDeposits,
       availableBalance: agent.availableBalance,
-      status: (agent as any).status || 'active',
-      user: agent.user,
-      referrals: agent.referrals,
-      commissions: agent.commissions,
+      status: agent.status,
+      user,
+      referrals,
+      commissions,
       stats: {
         totalDepositsGenerated: totalDeposits,
         firstDeposits,
@@ -132,19 +92,14 @@ adminAgentsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 // Get agent referrals
 adminAgentsRouter.get('/:id/referrals', async (req: AuthRequest, res: Response) => {
   try {
+    const agentId = req.params.id as string;
     const referrals = await prisma.agentReferral.findMany({
-      where: { agentId: req.params.id },
+      where: { agentId },
       include: {
-        user: {
-          select: {
-            id: true, fullName: true, email: true,
-            orders: { select: { vipName: true, status: true } },
-          },
-        },
+        user: { select: { id: true, fullName: true, email: true } },
       },
       orderBy: { registeredDate: 'desc' },
     });
-
     res.json(referrals);
   } catch {
     res.status(500).json({ error: 'Failed to get referrals' });
@@ -154,8 +109,9 @@ adminAgentsRouter.get('/:id/referrals', async (req: AuthRequest, res: Response) 
 // Get agent commissions
 adminAgentsRouter.get('/:id/commissions', async (req: AuthRequest, res: Response) => {
   try {
+    const agentId = req.params.id as string;
     const commissions = await prisma.agentCommission.findMany({
-      where: { agentId: req.params.id },
+      where: { agentId },
       orderBy: { createdAt: 'desc' },
     });
     res.json(commissions);
@@ -167,9 +123,10 @@ adminAgentsRouter.get('/:id/commissions', async (req: AuthRequest, res: Response
 // Suspend agent
 adminAgentsRouter.put('/:id/suspend', async (req: AuthRequest, res: Response) => {
   try {
+    const id = req.params.id as string;
     await prisma.agentProfile.update({
-      where: { id: req.params.id },
-      data: { status: 'suspended' as any },
+      where: { id },
+      data: { status: 'suspended' },
     });
     res.json({ success: true });
   } catch {
@@ -180,9 +137,10 @@ adminAgentsRouter.put('/:id/suspend', async (req: AuthRequest, res: Response) =>
 // Ban agent
 adminAgentsRouter.put('/:id/ban', async (req: AuthRequest, res: Response) => {
   try {
+    const id = req.params.id as string;
     await prisma.agentProfile.update({
-      where: { id: req.params.id },
-      data: { status: 'banned' as any },
+      where: { id },
+      data: { status: 'banned' },
     });
     res.json({ success: true });
   } catch {
@@ -193,9 +151,10 @@ adminAgentsRouter.put('/:id/ban', async (req: AuthRequest, res: Response) => {
 // Reactivate agent
 adminAgentsRouter.put('/:id/reactivate', async (req: AuthRequest, res: Response) => {
   try {
+    const id = req.params.id as string;
     await prisma.agentProfile.update({
-      where: { id: req.params.id },
-      data: { status: 'active' as any },
+      where: { id },
+      data: { status: 'active' },
     });
     res.json({ success: true });
   } catch {
@@ -203,10 +162,11 @@ adminAgentsRouter.put('/:id/reactivate', async (req: AuthRequest, res: Response)
   }
 });
 
-// Force logout agent (delete all sessions for the agent's user)
+// Force logout agent
 adminAgentsRouter.put('/:id/force-logout', async (req: AuthRequest, res: Response) => {
   try {
-    const agent = await prisma.agentProfile.findUnique({ where: { id: req.params.id } });
+    const id = req.params.id as string;
+    const agent = await prisma.agentProfile.findUnique({ where: { id } });
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
     await prisma.userSession.deleteMany({ where: { userId: agent.userId } });
@@ -219,28 +179,24 @@ adminAgentsRouter.put('/:id/force-logout', async (req: AuthRequest, res: Respons
 // Reset invitation code
 adminAgentsRouter.put('/:id/reset-code', async (req: AuthRequest, res: Response) => {
   try {
-    const agent = await prisma.agentProfile.findUnique({ where: { id: req.params.id } });
+    const id = req.params.id as string;
+    const agent = await prisma.agentProfile.findUnique({ where: { id } });
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let newCode = 'AGT';
-    for (let i = 0; i < 7; i++) {
-      newCode += chars[Math.floor(Math.random() * chars.length)];
-    }
+    for (let i = 0; i < 7; i++) newCode += chars[Math.floor(Math.random() * chars.length)];
 
-    // Ensure uniqueness
     let existing = await prisma.agentProfile.findUnique({ where: { agentCode: newCode } });
     while (existing) {
       newCode = 'AGT';
-      for (let i = 0; i < 7; i++) {
-        newCode += chars[Math.floor(Math.random() * chars.length)];
-      }
+      for (let i = 0; i < 7; i++) newCode += chars[Math.floor(Math.random() * chars.length)];
       existing = await prisma.agentProfile.findUnique({ where: { agentCode: newCode } });
     }
 
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     await prisma.agentProfile.update({
-      where: { id: req.params.id },
+      where: { id },
       data: { agentCode: newCode, agentLink: `${baseUrl}/register?ref=${newCode}` },
     });
 
@@ -253,7 +209,8 @@ adminAgentsRouter.put('/:id/reset-code', async (req: AuthRequest, res: Response)
 // Reset agent password
 adminAgentsRouter.put('/:id/reset-password', async (req: AuthRequest, res: Response) => {
   try {
-    const agent = await prisma.agentProfile.findUnique({ where: { id: req.params.id } });
+    const id = req.params.id as string;
+    const agent = await prisma.agentProfile.findUnique({ where: { id } });
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
     const newPassword = 'Coltion' + Math.random().toString(36).slice(-6).toUpperCase();

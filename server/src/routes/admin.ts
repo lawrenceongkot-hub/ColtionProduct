@@ -81,7 +81,8 @@ adminRouter.get('/users', async (_req: AuthRequest, res: Response) => {
 
 adminRouter.delete('/users/:id', async (req: AuthRequest, res: Response) => {
   try {
-    await prisma.user.delete({ where: { id: req.params.id } });
+    const id = req.params.id as string;
+    await prisma.user.delete({ where: { id } });
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: 'Failed to delete user' });
@@ -102,22 +103,20 @@ adminRouter.get('/deposits', async (_req: AuthRequest, res: Response) => {
 
 adminRouter.put('/deposits/:id/approve', async (req: AuthRequest, res: Response) => {
   try {
-    const deposit = await prisma.deposit.findUnique({ where: { id: req.params.id } });
+    const id = req.params.id as string;
+    const deposit = await prisma.deposit.findUnique({ where: { id } });
     if (!deposit) return res.status(404).json({ error: 'Deposit not found' });
     if (deposit.status !== 'PENDING') return res.status(400).json({ error: 'Already processed' });
 
-    // Get settings for commission rate
     const settings = await prisma.platformSettings.findUnique({ where: { id: 'default' } });
     const commissionRate = (settings?.referralCommissionPercent || 30) / 100;
 
     await prisma.$transaction(async (tx) => {
-      // Update deposit
       await tx.deposit.update({
-        where: { id: req.params.id },
+        where: { id },
         data: { status: 'SUCCESS', completedAt: new Date(), approvedBy: 'Admin' },
       });
 
-      // Credit wallet
       const wallet = await tx.wallet.findUnique({ where: { userId: deposit.userId } });
       if (wallet) {
         await tx.wallet.update({
@@ -126,13 +125,11 @@ adminRouter.put('/deposits/:id/approve', async (req: AuthRequest, res: Response)
         });
       }
 
-      // Update transaction
       await tx.transaction.updateMany({
         where: { reference: deposit.reference },
         data: { status: 'SUCCESS', completedAt: new Date() },
       });
 
-      // Process referral commission for first deposit
       const existingDeposits = await tx.deposit.count({
         where: { userId: deposit.userId, status: 'SUCCESS' },
       });
@@ -144,7 +141,6 @@ adminRouter.put('/deposits/:id/approve', async (req: AuthRequest, res: Response)
           if (agent) {
             const commissionAmount = Math.round(deposit.amount * commissionRate);
 
-            // Update agent referral status
             await tx.agentReferral.updateMany({
               where: { userId: deposit.userId, status: 'WAITING_DEPOSIT' },
               data: {
@@ -154,7 +150,6 @@ adminRouter.put('/deposits/:id/approve', async (req: AuthRequest, res: Response)
               },
             });
 
-            // Create commission record
             await tx.agentCommission.create({
               data: {
                 agentId: agent.id,
@@ -166,7 +161,6 @@ adminRouter.put('/deposits/:id/approve', async (req: AuthRequest, res: Response)
               },
             });
 
-            // Credit agent's main wallet
             const agentWallet = await tx.wallet.findUnique({ where: { userId: agent.userId } });
             if (agentWallet) {
               await tx.wallet.update({
@@ -175,7 +169,6 @@ adminRouter.put('/deposits/:id/approve', async (req: AuthRequest, res: Response)
               });
             }
 
-            // Update agent stats
             await tx.agentProfile.update({
               where: { id: agent.id },
               data: {
@@ -185,7 +178,6 @@ adminRouter.put('/deposits/:id/approve', async (req: AuthRequest, res: Response)
               },
             });
 
-            // Create commission transaction
             await tx.transaction.create({
               data: {
                 userId: agent.userId,
@@ -210,12 +202,13 @@ adminRouter.put('/deposits/:id/approve', async (req: AuthRequest, res: Response)
 
 adminRouter.put('/deposits/:id/reject', async (req: AuthRequest, res: Response) => {
   try {
-    const deposit = await prisma.deposit.findUnique({ where: { id: req.params.id } });
+    const id = req.params.id as string;
+    const deposit = await prisma.deposit.findUnique({ where: { id } });
     if (!deposit) return res.status(404).json({ error: 'Deposit not found' });
     if (deposit.status !== 'PENDING') return res.status(400).json({ error: 'Already processed' });
 
     await prisma.deposit.update({
-      where: { id: req.params.id },
+      where: { id },
       data: {
         status: 'FAILED',
         completedAt: new Date(),
@@ -248,16 +241,16 @@ adminRouter.get('/withdrawals', async (_req: AuthRequest, res: Response) => {
 
 adminRouter.put('/withdrawals/:id/approve', async (req: AuthRequest, res: Response) => {
   try {
-    const withdrawal = await prisma.withdrawal.findUnique({ where: { id: req.params.id } });
+    const id = req.params.id as string;
+    const withdrawal = await prisma.withdrawal.findUnique({ where: { id } });
     if (!withdrawal) return res.status(404).json({ error: 'Withdrawal not found' });
     if (withdrawal.status !== 'PENDING') return res.status(400).json({ error: 'Already processed' });
 
     await prisma.withdrawal.update({
-      where: { id: req.params.id },
+      where: { id },
       data: { status: 'SUCCESS', completedAt: new Date(), approvedBy: 'Admin' },
     });
 
-    // Deduct from wallet
     await prisma.wallet.update({
       where: { userId: withdrawal.userId },
       data: { main: { decrement: withdrawal.amount } },
@@ -276,12 +269,13 @@ adminRouter.put('/withdrawals/:id/approve', async (req: AuthRequest, res: Respon
 
 adminRouter.put('/withdrawals/:id/reject', async (req: AuthRequest, res: Response) => {
   try {
-    const withdrawal = await prisma.withdrawal.findUnique({ where: { id: req.params.id } });
+    const id = req.params.id as string;
+    const withdrawal = await prisma.withdrawal.findUnique({ where: { id } });
     if (!withdrawal) return res.status(404).json({ error: 'Withdrawal not found' });
     if (withdrawal.status !== 'PENDING') return res.status(400).json({ error: 'Already processed' });
 
     await prisma.withdrawal.update({
-      where: { id: req.params.id },
+      where: { id },
       data: { status: 'FAILED', completedAt: new Date(), rejectionReason: req.body.reason || 'Rejected' },
     });
 
@@ -290,7 +284,6 @@ adminRouter.put('/withdrawals/:id/reject', async (req: AuthRequest, res: Respons
       data: { status: 'FAILED', completedAt: new Date() },
     });
 
-    // Refund wallet
     await prisma.wallet.update({
       where: { userId: withdrawal.userId },
       data: { main: { increment: withdrawal.amount } },
@@ -341,9 +334,10 @@ adminRouter.get('/verifications', async (_req: AuthRequest, res: Response) => {
 
 adminRouter.put('/verifications/:id/:action', async (req: AuthRequest, res: Response) => {
   try {
+    const id = req.params.id as string;
     const status = req.params.action === 'approve' ? 'APPROVED' : 'REJECTED';
     await prisma.verificationRequest.update({
-      where: { id: req.params.id },
+      where: { id },
       data: { status },
     });
     res.json({ success: true });

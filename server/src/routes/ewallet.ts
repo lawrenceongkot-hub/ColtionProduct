@@ -22,7 +22,7 @@ ewalletRouter.post('/', async (req: AuthRequest, res: Response) => {
     const { provider, walletNumber, withdrawalPassword } = req.body;
 
     // Check if wallet number already exists
-    const existing = await prisma.eWallet.findFirst({ where: { walletNumber } });
+    const existing = await prisma.eWallet.findFirst({ where: { walletNumber: walletNumber } });
     if (existing) {
       return res.status(400).json({ error: 'Wallet number already registered' });
     }
@@ -45,8 +45,9 @@ ewalletRouter.post('/', async (req: AuthRequest, res: Response) => {
 // Delete e-wallet
 ewalletRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
+    const ewalletId = req.params.id as string;
     await prisma.eWallet.deleteMany({
-      where: { id: req.params.id, userId: req.user!.id },
+      where: { id: ewalletId, userId: req.user!.id },
     });
     res.json({ success: true });
   } catch {

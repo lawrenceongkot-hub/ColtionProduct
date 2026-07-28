@@ -60,14 +60,6 @@ async function main() {
       countryRestrictions: '{}',
       blockedCountryMessage: 'Service unavailable in your country.',
       withdrawalMaintenanceMessage: 'Withdrawals temporarily unavailable.',
-      emailNotifications: true,
-      smsNotifications: false,
-      inAppNotifications: true,
-      adminNotifications: true,
-      referralNotifications: true,
-      investmentNotifications: true,
-      depositNotifications: true,
-      withdrawalNotifications: true,
     },
   });
 
