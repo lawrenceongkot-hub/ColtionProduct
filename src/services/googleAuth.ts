@@ -16,6 +16,11 @@
  * 7. Create .env file with: VITE_GOOGLE_CLIENT_ID=your_client_id
  */
 
+import { generateUniqueCode, getAllInvitationCodes } from './referralService';
+import { getReferralLink } from '../utils/domain';
+import { agentService } from './agentService';
+import { registrationGuard } from './registrationGuard';
+
 const USERS_KEY = 'coltion_users';
 const SESSION_KEY = 'coltion_session';
 
@@ -24,6 +29,21 @@ export interface GoogleUserData {
   email: string;
   fullName: string;
   picture: string;
+}
+
+function generateId(): string {
+  return 'usr_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+}
+
+function generateDisplayId(existingIds: string[]): string {
+  let id: string;
+  do {
+    id = '';
+    for (let i = 0; i < 10; i++) {
+      id += Math.floor(Math.random() * 10).toString();
+    }
+  } while (existingIds.includes(id));
+  return id;
 }
 
 export const googleAuth = {
@@ -77,9 +97,6 @@ export const googleAuth = {
 
           try {
             // Decode the ID token from the credential response
-            // The response contains an access_token, but we need to use
-            // Google's token info endpoint or decode the JWT
-            // Since we have the access_token, we can fetch user info
             fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
               headers: { Authorization: `Bearer ${response.access_token}` }
             })
@@ -110,7 +127,8 @@ export const googleAuth = {
 
   /**
    * Create or login a user with Google data.
-   * Stores user in the same localStorage as email/password auth.
+   * Uses the SAME invitation code system as website registration.
+   * Fully integrates with referral, agent, welcome bonus, and fingerprint systems.
    */
   async loginWithGoogle(): Promise<{ user: any; isNew: boolean }> {
     const googleUser = await this.signIn();
@@ -121,27 +139,88 @@ export const googleAuth = {
     let isNew = false;
 
     if (!existingUser) {
-      // Create new user
+      // === Use the SAME invitation code generator as website registration ===
+      const existingCodes = getAllInvitationCodes();
+      const invitationCode = generateUniqueCode(existingCodes);
+
+      // Generate unique display ID
+      const existingDisplayIds = users.map((u: any) => u.displayId).filter(Boolean);
+      const displayId = generateDisplayId(existingDisplayIds);
+
+      // Read referral code from URL if present
+      let invitedBy: string | null = null;
+      let referrerAgentId: string | null = null;
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const refCode = params.get('ref');
+        if (refCode) {
+          const normalizedCode = refCode.trim().toUpperCase();
+          // Check if it's a user invitation code
+          if (existingCodes.includes(normalizedCode)) {
+            invitedBy = normalizedCode;
+          }
+          // Check if it's an agent code
+          const agent = agentService.findAgentByCode(normalizedCode);
+          if (agent) {
+            referrerAgentId = agent.id;
+          }
+        }
+      } catch {}
+
+      const invitationLink = getReferralLink(invitationCode);
+
       const newUser = {
-        id: 'usr_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
-        displayId: String(Math.floor(1000000000 + Math.random() * 9000000000)),
+        id: generateId(),
+        displayId,
         fullName: googleUser.fullName,
         email: googleUser.email,
         phone: '',
         password: 'google_oauth_' + Date.now(),
         createdAt: Date.now(),
-        invitationCode: 'GOOGLE_' + Math.random().toString(36).substr(2, 4).toUpperCase(),
-        invitationLink: '',
-        invitedBy: null,
+        // === Standard 8-character invitation code (NOT GOOGLE_ prefix) ===
+        invitationCode,
+        invitationLink,
+        invitedBy,
         referralCount: 0,
         totalReferralEarnings: 0,
         googleId: googleUser.id,
         picture: googleUser.picture,
+        referrerAgentId,
       };
       users.push(newUser);
       localStorage.setItem(USERS_KEY, JSON.stringify(users));
       existingUser = newUser;
       isNew = true;
+
+      // === POST-REGISTRATION STEPS (same as website registration) ===
+
+      // Record referral if invited by another user
+      if (invitedBy) {
+        try {
+          const { recordReferral } = await import('./referralService');
+          recordReferral(invitedBy, newUser.id, newUser.fullName, newUser.email);
+        } catch {}
+      }
+
+      // Record agent referral if applicable
+      if (referrerAgentId) {
+        try {
+          const refCode = new URLSearchParams(window.location.search).get('ref');
+          if (refCode) {
+            agentService.recordReferral(refCode, newUser.id, newUser.fullName, newUser.email);
+          }
+        } catch {}
+      }
+
+      // Award welcome bonus
+      try {
+        registrationGuard.awardWelcomeBonusBypass(newUser.id);
+      } catch {}
+
+      // Record fingerprint
+      try {
+        registrationGuard.recordFingerprint(newUser.id, newUser.fullName);
+      } catch {}
     }
 
     // Create session

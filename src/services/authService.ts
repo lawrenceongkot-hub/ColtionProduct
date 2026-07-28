@@ -123,6 +123,8 @@ export const authService = {
   },
 
   async register(data: RegisterFormData): Promise<User> {
+    console.log('[DEBUG authService.register] START - data received:', JSON.stringify({ ...data, password: '***' }));
+    
     await new Promise(resolve => setTimeout(resolve, 1500));
 
     const users = getStoredUsers();
@@ -152,10 +154,28 @@ export const authService = {
 
     let invitedBy: string | null = null;
     if (data.referralCode) {
-      const code = data.referralCode.trim();
+      const code = data.referralCode.trim().toUpperCase();
+      console.log('[DEBUG authService.register] referralCode present:', data.referralCode, '| normalized:', code);
+      
       const referrerExists = existingCodes.includes(code);
-      if (!referrerExists) throw new Error('Invalid invitation code. Please check and try again.');
-      invitedBy = code;
+      console.log('[DEBUG authService.register] checking user invitation codes:', existingCodes, '| code in list:', referrerExists);
+      
+      // Also check if it's a valid agent code (AGT-prefixed codes stored separately)
+      const agent = agentService.findAgentByCode(code);
+      const agentExists = agent !== null;
+      console.log('[DEBUG authService.register] checking agent code:', code, '| agent found:', !!agent);
+      
+      if (!referrerExists && !agentExists) {
+        console.log('[DEBUG authService.register] VALIDATION FAILED - code not found as user code or agent code');
+        throw new Error('Invalid invitation code. Please check and try again.');
+      }
+      console.log('[DEBUG authService.register] VALIDATION PASSED');
+      if (referrerExists) {
+        invitedBy = code;
+        console.log('[DEBUG authService.register] code is a user invitation code, invitedBy set to:', invitedBy);
+      }
+    } else {
+      console.log('[DEBUG authService.register] no referralCode provided');
     }
 
     const invitationLink = getReferralLink(invitationCode);
@@ -177,11 +197,14 @@ export const authService = {
 
     users.push(newUser);
     saveUsers(users);
+    console.log('[DEBUG authService.register] User saved:', { id: newUser.id, email: newUser.email, invitationCode: newUser.invitationCode, invitedBy: newUser.invitedBy });
+    
     // Notify dashboard: new user registered
     try { window.dispatchEvent(new CustomEvent('dashboard:update')); } catch {}
 
     if (invitedBy) {
       recordReferral(invitedBy, newUser.id, newUser.fullName, newUser.email);
+      console.log('[DEBUG authService.register] referral recorded for inviter code:', invitedBy);
     }
 
     // Award welcome bonus BEFORE recording fingerprint (so bonus check doesn't see itself)
@@ -195,12 +218,14 @@ export const authService = {
       const agent = agentService.findAgentByCode(data.referralCode);
       if (agent) {
         agentService.recordReferral(data.referralCode, newUser.id, newUser.fullName, newUser.email);
+        console.log('[DEBUG authService.register] agent referral recorded for code:', data.referralCode);
       }
     }
 
     const { password: _, ...safeUser } = newUser;
     localStorage.setItem(SESSION_KEY, JSON.stringify(safeUser));
 
+    console.log('[DEBUG authService.register] Registration complete');
     return safeUser;
   },
 

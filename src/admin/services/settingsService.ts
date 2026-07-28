@@ -74,7 +74,7 @@ const DEFAULT_SETTINGS: PlatformSettings = {
   websiteFavicon: '',
   maintenanceMode: false,
   maintenanceMessage: 'We are currently performing scheduled maintenance. Please try again later.',
-  referralCommissionPercent: 5,
+  referralCommissionPercent: 30,
   paymentMethods: { GCash: true, Maya: true, QRPH: true },
   withdrawalsEnabled: true,
   withdrawalMaintenanceMessage: 'Withdrawals are temporarily unavailable due to maintenance.',

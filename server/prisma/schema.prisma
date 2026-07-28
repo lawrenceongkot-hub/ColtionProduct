@@ -1,0 +1,385 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  VIP_PURCHASE
+  DAILY_PROFIT
+  REFERRAL_COMMISSION
+  WALLET_TRANSFER
+  VIP_MATURITY_TRANSFER
+  WELCOME_BONUS
+  AGENT_COMMISSION
+  ADMIN_ADJUSTMENT
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum OrderStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ReferralStatus {
+  WAITING_DEPOSIT
+  COMMISSION_PAID
+}
+
+model User {
+  id                   String   @id @default(cuid())
+  displayId            String   @unique
+  email                String   @unique
+  password             String
+  fullName             String
+  phone                String   @default("")
+  picture              String?
+  googleId             String?
+  invitationCode       String   @unique
+  invitationLink       String   @default("")
+  invitedBy            String?
+  referrerAgentId      String?
+  referralCount        Int      @default(0)
+  totalReferralEarnings Float   @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  wallet               Wallet?
+  ewallet              EWallet?
+  orders               InvestmentOrder[]
+  transactions         Transaction[]
+  referrals            Referral[]       @relation("UserReferrals")
+  agentReferrals       AgentReferral[]
+  verificationRequests VerificationRequest[]
+  fingerprints         RegistrationFingerprint[]
+  welcomeBonuses       WelcomeBonusClaim[]
+  sessions             UserSession[]
+  notifications        Notification[]
+  walletLedger         WalletLedger[]
+  auditLogs            AuditLog[]
+  deposits             Deposit[]
+  withdrawals          Withdrawal[]
+  changePasswordTokens ChangePasswordToken[]
+  agentCommissions     AgentCommission[]
+}
+
+model AdminUser {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String
+  name      String
+  role      String   @default("admin")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sessions  AdminSession[]
+}
+
+model AdminSession {
+  id        String   @id @default(cuid())
+  adminId   String
+  token     String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  admin     AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+}
+
+model UserSession {
+  id           String   @id @default(cuid())
+  userId       String
+  token        String   @unique
+  refreshToken String?
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  main      Float    @default(0)
+  semWallet Float    @default(0)
+  ongoing   Float    @default(0)
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Transaction {
+  id               String            @id @default(cuid())
+  userId           String
+  type             TransactionType
+  amount           Float
+  method           String            @default("")
+  walletNumber     String?
+  reference        String
+  status           TransactionStatus
+  bonusApplied     Float             @default(0)
+  bonusType        String?
+  approvedBy       String?
+  rejectionReason  String?
+  proofOfPayment   String?
+  createdAt        DateTime          @default(now())
+  completedAt      DateTime?
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Deposit {
+  id               String            @id @default(cuid())
+  userId           String
+  amount           Float
+  method           String
+  reference        String            @unique
+  status           TransactionStatus @default(PENDING)
+  bonusApplied     Float             @default(0)
+  bonusType        String?
+  approvedBy       String?
+  rejectionReason  String?
+  proofOfPayment   String?
+  createdAt        DateTime          @default(now())
+  completedAt      DateTime?
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Withdrawal {
+  id               String            @id @default(cuid())
+  userId           String
+  amount           Float
+  method           String
+  walletNumber     String
+  reference        String            @unique
+  status           TransactionStatus @default(PENDING)
+  approvedBy       String?
+  rejectionReason  String?
+  createdAt        DateTime          @default(now())
+  completedAt      DateTime?
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model InvestmentOrder {
+  id                String      @id @default(cuid())
+  userId            String
+  vipLevel          Int
+  vipName           String
+  vipBadge          String
+  buyAmount         Float
+  dailyRate         Float
+  dailyProfitPerDay Float
+  duration          Int
+  totalReturn       Float
+  status            OrderStatus @default(ACTIVE)
+  purchaseDate      DateTime    @default(now())
+  lastProfitDate    DateTime?
+  completedDays     Int         @default(0)
+  currentProfit     Float       @default(0)
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model EWallet {
+  id                 String @id @default(cuid())
+  userId             String @unique
+  provider           String
+  walletNumber       String
+  withdrawalPassword String
+  user               User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Referral {
+  id             String   @id @default(cuid())
+  inviterCode    String
+  referredUserId String
+  referredName   String
+  referredEmail  String
+  joinedDate     DateTime @default(now())
+  status         String   @default("active")
+  referredUser   User     @relation("UserReferrals", fields: [referredUserId], references: [id], onDelete: Cascade)
+}
+
+model AgentProfile {
+  id               String  @id @default(cuid())
+  userId           String  @unique
+  agentCode        String  @unique
+  agentLink        String  @default("")
+  totalCommission  Float   @default(0)
+  totalReferrals   Int     @default(0)
+  qualifiedDeposits Int    @default(0)
+  availableBalance Float   @default(0)
+  referrals        AgentReferral[]
+  commissions      AgentCommission[]
+}
+
+model AgentReferral {
+  id             String         @id @default(cuid())
+  agentId        String
+  userId         String
+  fullName       String
+  email          String
+  registeredDate DateTime       @default(now())
+  firstDeposit   Float?
+  commission     Float?
+  status         ReferralStatus @default(WAITING_DEPOSIT)
+  agent          AgentProfile   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AgentCommission {
+  id               String   @id @default(cuid())
+  agentId          String
+  referredUserId   String
+  referredName     String
+  depositAmount    Float
+  commissionRate   Float
+  commissionAmount Float
+  createdAt        DateTime @default(now())
+  agent            AgentProfile @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  user             User         @relation(fields: [referredUserId], references: [id], onDelete: Cascade)
+}
+
+model VerificationRequest {
+  id               String             @id @default(cuid())
+  userId           String
+  email            String
+  mobileNumber     String
+  verificationCode String
+  status           VerificationStatus @default(PENDING)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  expiresAt        DateTime
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RegistrationFingerprint {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  fullName          String
+  ipAddress         String
+  deviceFingerprint String
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WelcomeBonusClaim {
+  id                String   @id @default(cuid())
+  userId            String
+  amount            Float
+  ipAddress         String
+  deviceFingerprint String
+  status            String   @default("CLAIMED")
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PlatformSettings {
+  id                           String  @id @default("default")
+  websiteName                  String  @default("Coltion Product Investment")
+  websiteDescription           String  @default("Premium Investment Platform")
+  supportEmail                 String  @default("support@coltionproduct.com")
+  supportPhone                 String  @default("+63 900 000 0000")
+  companyAddress               String  @default("Metro Manila, Philippines")
+  footerCopyright               String  @default("© 2026 Coltion Product Investment. All rights reserved.")
+  maintenanceMode              Boolean @default(false)
+  maintenanceMessage           String  @default("We are currently performing scheduled maintenance.")
+  referralCommissionPercent    Float   @default(30)
+  paymentMethods               String  @default("{\"GCash\":true,\"Maya\":true,\"QRPH\":true}")
+  withdrawalsEnabled           Boolean @default(true)
+  withdrawalMaintenanceMessage String  @default("Withdrawals temporarily unavailable.")
+  registrationEnabled          Boolean @default(true)
+  loginEnabled                 Boolean @default(true)
+  maxLoginAttempts             Int     @default(5)
+  lockDurationMinutes          Int     @default(30)
+  ipWhitelistEnabled           Boolean @default(false)
+  ipWhitelist                  String  @default("[]")
+  ipBlacklist                  String  @default("[]")
+  countryRestrictions          String  @default("{}")
+  blockedCountryMessage        String  @default("Service unavailable in your country.")
+  sessionTimeoutMinutes        Int     @default(60)
+  passwordMinLength            Int     @default(8)
+  requireUppercase             Boolean @default(true)
+  requireLowercase             Boolean @default(true)
+  requireNumber                Boolean @default(true)
+  requireSpecialChar           Boolean @default(false)
+  rememberMeDays               Int     @default(30)
+  twoFactorEnabled             Boolean @default(false)
+  emailVerificationRequired    Boolean @default(true)
+  mobileVerificationRequired   Boolean @default(true)
+  maxUploadSizeMB              Int     @default(10)
+  allowedImageTypes            String  @default("jpg,png,svg,webp")
+  allowedDocumentTypes         String  @default("pdf,doc,docx")
+  maxVerificationFileSizeMB    Int     @default(5)
+  updatedAt                    DateTime @updatedAt
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  adminId     String?
+  adminName   String?
+  adminRole   String?
+  userId      String?
+  action      String
+  beforeValue String?
+  afterValue  String?
+  amount      Float?
+  timestamp   DateTime @default(now())
+  ipAddress   String   @default("127.0.0.1")
+  user        User?    @relation(fields: [userId], references: [id])
+}
+
+model WalletLedger {
+  id              String   @id @default(cuid())
+  userId          String
+  walletType      String
+  transactionType String
+  referenceType   String
+  referenceId     String
+  amount          Float
+  balanceBefore   Float
+  balanceAfter    Float
+  createdAt       DateTime @default(now())
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ChangePasswordToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VipPlan {
+  id          Int    @id @default(autoincrement())
+  name        String
+  buyAmount   Float
+  dailyRate   Float
+  dailyProfit Float
+  duration    Int
+  totalReturn Float
+  badge       String
+}

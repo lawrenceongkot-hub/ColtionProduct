@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { AuthState } from '../types';
-import { authService } from '../services/authService';
+import { apiService, setTokens, clearTokens, getAccessToken } from '../services/api';
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string, rememberMe: boolean) => Promise<void>;
@@ -18,31 +18,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = React.memo(
   });
 
   useEffect(() => {
-    const user = authService.getSession();
-    setState({
-      user,
-      isAuthenticated: !!user,
-      isLoading: false,
-    });
+    const token = getAccessToken();
+    if (token) {
+      apiService.get('/auth/me')
+        .then((user: any) => {
+          setState({ user, isAuthenticated: true, isLoading: false });
+        })
+        .catch(() => {
+          clearTokens();
+          setState({ user: null, isAuthenticated: false, isLoading: false });
+        });
+    } else {
+      setState(prev => ({ ...prev, isLoading: false }));
+    }
   }, []);
 
   const login = useCallback(async (email: string, password: string, rememberMe: boolean) => {
-    const user = await authService.login({ email, password, rememberMe });
-    setState({ user, isAuthenticated: true, isLoading: false });
+    const data = await apiService.post('/auth/login', { email, password, rememberMe });
+    setTokens(data.accessToken, data.refreshToken);
+    setState({ user: data.user, isAuthenticated: true, isLoading: false });
   }, []);
 
-  const register = useCallback(async (data: { fullName: string; email: string; phone: string; password: string; referralCode?: string }) => {
-    const user = await authService.register({
-      ...data,
-      confirmPassword: data.password,
-      agreeToTerms: true,
-      referralCode: data.referralCode,
-    });
-    setState({ user, isAuthenticated: true, isLoading: false });
+  const register = useCallback(async (regData: { fullName: string; email: string; phone: string; password: string; referralCode?: string }) => {
+    const data = await apiService.post('/auth/register', regData);
+    setTokens(data.accessToken, data.refreshToken);
+    setState({ user: data.user, isAuthenticated: true, isLoading: false });
   }, []);
 
-  const logout = useCallback(() => {
-    authService.logout();
+  const logout = useCallback(async () => {
+    try { await apiService.post('/auth/logout'); } catch {}
+    clearTokens();
     setState({ user: null, isAuthenticated: false, isLoading: false });
   }, []);
 

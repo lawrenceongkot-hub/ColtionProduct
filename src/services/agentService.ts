@@ -5,7 +5,7 @@ import { getReferralLink } from '../utils/domain';
 const AGENT_KEY = 'coltion_agents';
 const AGENT_REFERRALS_KEY = 'coltion_agent_referrals';
 const AGENT_COMMISSIONS_KEY = 'coltion_agent_commissions';
-const COMMISSION_RATE = 0.30; // 30%
+const COMMISSION_RATE_KEY = 'coltion_settings';
 
 function getAgents(): AgentProfile[] {
   try { return JSON.parse(localStorage.getItem(AGENT_KEY) || '[]'); } catch { return []; }
@@ -125,71 +125,18 @@ export const agentService = {
     } catch { /* silent */ }
   },
 
-  /** Process commission when a user makes their first deposit. */
-  processFirstDeposit(userId: string, depositAmount: number): void {
-    const referrals = getReferrals();
-    const referral = referrals.find(r => r.userId === userId);
-    if (!referral) return;
-    if (referral.status === 'commission_paid') return;
-    if (referral.firstDeposit !== null) return;
-
-    // Find the agent
-    const agents = getAgents();
-    const users = JSON.parse(localStorage.getItem('coltion_users') || '[]');
-    const user = users.find((u: any) => u.id === userId);
-    if (!user || !user.referrerAgentId) return;
-
-    const agent = agents.find(a => a.id === user.referrerAgentId);
-    if (!agent) return;
-
-    const commissionAmount = Math.round(depositAmount * COMMISSION_RATE);
-
-    // Update referral
-    referral.firstDeposit = depositAmount;
-    referral.commission = commissionAmount;
-    referral.status = 'commission_paid';
-    saveReferrals(referrals);
-
-    // Create commission record
-    const commissions = getCommissions();
-    commissions.push({
-      id: 'com_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
-      agentId: agent.id,
-      referredUserId: userId,
-      referredName: user.fullName,
-      depositAmount,
-      commissionRate: COMMISSION_RATE,
-      commissionAmount,
-      createdAt: new Date().toISOString(),
-    });
-    saveCommissions(commissions);
-
-    // Update agent stats
-    agent.totalCommission += commissionAmount;
-    agent.qualifiedDeposits += 1;
-    agent.availableBalance += commissionAmount;
-    saveAgents(agents);
-
-    // Credit agent wallet (main wallet)
-    walletService.deposit(agent.userId, commissionAmount);
-
-    // Record agent commission transaction
+  /**
+   * Get the current commission rate from Website Control settings.
+   * Defaults to 30% (0.30) if not configured.
+   */
+  getCommissionRate(): number {
     try {
-      const TX_KEY = 'coltion_transactions';
-      const txs = JSON.parse(localStorage.getItem(TX_KEY) || '[]');
-      txs.push({
-        id: 'txn_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
-        userId: agent.userId,
-        type: 'agent_commission',
-        amount: commissionAmount,
-        method: `Agent Commission - ${user.fullName}`,
-        reference: 'AGCOM-' + referral.id.slice(-8).toUpperCase(),
-        status: 'success',
-        createdAt: new Date().toISOString(),
-        completedAt: new Date().toISOString(),
-      });
-      localStorage.setItem(TX_KEY, JSON.stringify(txs));
-    } catch { /* silent */ }
+      const settings = JSON.parse(localStorage.getItem(COMMISSION_RATE_KEY) || '{}');
+      if (settings.referralCommissionPercent) {
+        return settings.referralCommissionPercent / 100;
+      }
+    } catch {}
+    return 0.30; // 30% default
   },
 
   /** Get agent referrals. */
