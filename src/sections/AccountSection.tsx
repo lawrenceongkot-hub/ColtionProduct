@@ -26,7 +26,7 @@ export const AccountSection: React.FC = React.memo(() => {
 
   useEffect(() => {
     if (user) {
-      const w = walletService.getBalances(user.id);
+      const w = walletService.getBalancesSync(user.id);
       setBalances(w);
       setIsVerified(verificationService.isVerified(user.id));
       // Ongoing Wallet = accumulated profits from active VIP plans

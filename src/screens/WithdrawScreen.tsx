@@ -82,7 +82,7 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
   const hasWallets = wallets.length > 0;
   const isFirstWallet = !hasWallets;
   const isVerified = verificationService.isVerified(user.id);
-  const balances = walletService.getBalances(user.id);
+  const balances = walletService.getBalancesSync(user.id);
   const numericAmount = parseFloat(amount) || 0;
 
   // ESC key handler

@@ -32,7 +32,7 @@ export const vipPurchaseService = {
    */
   purchasePlan(userId: string, vipPlan: VipPlan): { success: boolean; order?: InvestmentOrder; error?: string } {
     // 1. Load current wallet balance
-    const balances = walletService.getBalances(userId);
+    const balances = walletService.getBalancesSync(userId);
     const semBalance = balances.semWallet;
     const price = vipPlan.buyAmount;
 

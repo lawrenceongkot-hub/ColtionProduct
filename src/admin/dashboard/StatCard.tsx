@@ -1,6 +1,5 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { AnimatedCounter } from './AnimatedCounter';
 
 interface StatCardProps {
   icon: string;
@@ -102,7 +101,7 @@ export const StatCard: React.FC<StatCardProps> = React.memo(({
 
       {/* Value */}
       <div style={{ fontSize: '26px', fontWeight: 700, color: '#FFFFFF', fontFamily: "'Inter', sans-serif", marginBottom: '4px' }}>
-        <AnimatedCounter value={value} prefix={prefix} suffix={suffix} decimals={decimals} />
+        {prefix}{value.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}{suffix}
       </div>
 
       {/* Label */}

@@ -131,7 +131,7 @@ export const registrationGuard = {
     // Create wallet ledger entry
     try {
       const WALLET_LEDGER_KEY = 'coltion_wallet_ledger';
-      const balances = walletService.getBalances(userId);
+      const balances = walletService.getBalancesSync(userId);
       const ledger = JSON.parse(localStorage.getItem(WALLET_LEDGER_KEY) || '[]');
       ledger.push({
         id: 'led_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 6),

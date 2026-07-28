@@ -68,7 +68,7 @@ export const transactionService = {
       tx.status = 'success';
       tx.completedAt = new Date().toISOString();
       saveTransactions(txs);
-      walletService.deposit(userId, amount);
+      walletService.depositLocal(userId, amount);
       notifyDashboard();
     }
   },
@@ -100,7 +100,7 @@ export const transactionService = {
       tx.status = 'success';
       tx.completedAt = new Date().toISOString();
       saveTransactions(txs);
-      walletService.withdraw(userId, amount);
+      walletService.withdrawLocal(userId, amount);
       notifyDashboard();
     }
   },

@@ -173,7 +173,7 @@ export const orderService = {
       // Transfer from Ongoing Wallet to Main Wallet logic
       // Since we track Ongoing Wallet separately, add profit to Main Wallet
       // and the ongoing wallet balance is the sum of active order profits
-      walletService.deposit(userId, profit);
+      walletService.depositLocal(userId, profit);
 
       // Record VIP maturity transfer transaction
       const TX_KEY = 'coltion_transactions';
