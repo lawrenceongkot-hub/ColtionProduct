@@ -126,8 +126,9 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = React.memo(({ onNav
         referralCode,
       });
     } catch (err) {
-      console.log('[DEBUG RegisterScreen] Registration error:', err);
-      setAuthError(err instanceof Error ? err.message : 'Registration failed. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.log('[DEBUG RegisterScreen] Registration error:', errorMessage);
+      setAuthError(errorMessage || 'Registration failed. Please try again.');
       setIsLoading(false);
     }
   }, [step, validateStep2, handleNextStep, register, formData]);
