@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { dashboardService, triggerDashboardUpdate, DASHBOARD_UPDATE_EVENT } from '../services/dashboardService';
+import { dashboardService, DASHBOARD_UPDATE_EVENT } from '../services/dashboardService';
 import type { DashboardStats } from '../services/dashboardService';
 import { StatCard } from '../dashboard/StatCard';
 import { adminAuth } from '../services/adminAuth';
@@ -48,45 +48,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = React.memo(({ onNav
   const adminName = session?.name || 'Admin';
   const adminRole = session?.role || 'Administrator';
 
-  // Fetch stats from actual storage
-  const fetchStats = useCallback(() => {
-    console.log('fetchStats() called - reading from localStorage...');
-    
-    // DEBUG: Direct localStorage read
-    const rawUsers = localStorage.getItem('coltion_users');
-    console.log('RAW localStorage coltion_users:', rawUsers);
-    const parsed = rawUsers ? JSON.parse(rawUsers) : [];
-    console.log('PARSED users:', parsed);
-    console.log('PARSED user count:', parsed.length);
-    
-    const newStats = dashboardService.getStats();
-    console.log('STATS from getStats():', JSON.stringify(newStats));
-    console.log('STATS.totalUsers:', newStats.totalUsers);
-    console.log('(should match localStorage length:', parsed.length, ')');
-    
+  // Fetch stats from backend API
+  const fetchStats = useCallback(async () => {
+    const newStats = await dashboardService.getStats();
     setStats(newStats);
     setCurrentTime(dashboardService.getCurrentTime());
   }, []);
 
-  // On mount: check localStorage directly, then fetch
+  // On mount: fetch stats
   useEffect(() => {
-    console.log('useEffect [fetchStats] - MOUNTED');
-    console.log('Direct localStorage check at mount:');
-    try {
-      const raw = localStorage.getItem('coltion_users');
-      const users = raw ? JSON.parse(raw) : [];
-      console.log('coltion_users at mount:', JSON.stringify(users));
-      console.log('user count at mount:', users.length);
-    } catch (e) {
-      console.error('Error reading coltion_users at mount:', e);
-    }
-    
     fetchStats();
     const timer = setTimeout(() => setLoading(false), 400);
-    return () => {
-      console.log('useEffect cleanup - clearing timeout');
-      clearTimeout(timer);
-    };
+    return () => clearTimeout(timer);
   }, [fetchStats]);
 
   // Polling fallback every 10 seconds
@@ -97,29 +70,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = React.memo(({ onNav
     };
   }, [fetchStats]);
 
-  // Listen for storage events (cross-tab synchronization)
-  useEffect(() => {
-    const handleStorage = (e: StorageEvent) => {
-      console.log('STORAGE EVENT FIRED:', e.key, e.newValue?.substring(0, 100));
-      const keys = ['coltion_users', 'coltion_transactions', 'coltion_orders', 'coltion_verifications', 'coltion_events'];
-      if (keys.includes(e.key || '')) {
-        console.log('Storage event match - refetching stats');
-        fetchStats();
-      }
-    };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, [fetchStats]);
-
   // Listen for custom dashboard update events (same-tab)
   useEffect(() => {
-    const handleCustom = () => {
-      console.log('CUSTOM DASHBOARD:UPDATE EVENT FIRED');
-      fetchStats();
-    };
+    const handleCustom = () => fetchStats();
     window.addEventListener(DASHBOARD_UPDATE_EVENT, handleCustom);
     return () => window.removeEventListener(DASHBOARD_UPDATE_EVENT, handleCustom);
   }, [fetchStats]);
+
 
   // Clock update
   useEffect(() => {
@@ -129,9 +86,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = React.memo(({ onNav
 
   // Expose triggerDashboardUpdate globally
   useEffect(() => {
-    (window as any).__triggerDashboardUpdate = triggerDashboardUpdate;
+    (window as any).__triggerDashboardUpdate = () => fetchStats();
     return () => { delete (window as any).__triggerDashboardUpdate; };
-  }, []);
+  }, [fetchStats]);
 
   if (loading || !stats) {
     console.log('RENDERING SKELETON. loading:', loading, 'stats:', !!stats);

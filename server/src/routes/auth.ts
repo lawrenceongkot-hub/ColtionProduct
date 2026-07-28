@@ -255,6 +255,146 @@ authRouter.post('/logout', authenticateToken, async (req: AuthRequest, res: Resp
   }
 });
 
+// Google OAuth login/register
+authRouter.post('/google', async (req: AuthRequest, res: Response) => {
+  try {
+    const { googleId, email, fullName, picture, referralCode } = req.body;
+    if (!googleId || !email || !fullName) {
+      return res.status(400).json({ error: 'Missing required Google user data' });
+    }
+
+    // Check if user exists by googleId or email
+    let user = await prisma.user.findFirst({
+      where: { OR: [{ googleId }, { email: email.toLowerCase().trim() }] },
+    });
+
+    let isNew = false;
+
+    if (!user) {
+      // Generate unique IDs
+      const allUsers = await prisma.user.findMany({ select: { displayId: true, invitationCode: true } });
+      const existingCodes = allUsers.map((u: any) => u.invitationCode).filter(Boolean);
+      const existingDisplayIds = allUsers.map((u: any) => u.displayId).filter(Boolean);
+
+      let invitationCode = generateInvitationCode();
+      while (existingCodes.includes(invitationCode)) invitationCode = generateInvitationCode();
+      const displayId = generateDisplayId(existingDisplayIds);
+
+      const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const invitationLink = `${baseUrl}/register?ref=${invitationCode}`;
+
+      // Validate referral code
+      let invitedBy: string | null = null;
+      let referrerAgentId: string | null = null;
+      if (referralCode) {
+        const code = referralCode.trim().toUpperCase();
+        const referrerExists = existingCodes.includes(code);
+        const agentExists = await prisma.agentProfile.findUnique({ where: { agentCode: code } });
+
+        if (referrerExists) invitedBy = code;
+        if (agentExists) {
+          const agent = await prisma.agentProfile.findUnique({ where: { agentCode: code } });
+          if (agent) referrerAgentId = agent.id;
+        }
+      }
+
+      // Create user
+      user = await prisma.user.create({
+        data: {
+          displayId,
+          email: email.toLowerCase().trim(),
+          password: 'google_oauth_' + Date.now(),
+          fullName,
+          phone: '',
+          picture: picture || '',
+          googleId,
+          invitationCode,
+          invitationLink,
+          invitedBy,
+          referrerAgentId,
+          referralCount: 0,
+          totalReferralEarnings: 0,
+        },
+      });
+
+      // Create wallet
+      await prisma.wallet.create({
+        data: { userId: user.id, main: 0, semWallet: 0, ongoing: 0 },
+      });
+
+      // Record referral
+      if (invitedBy) {
+        await prisma.referral.create({
+          data: {
+            inviterCode: invitedBy,
+            referredUserId: user.id,
+            referredName: fullName,
+            referredEmail: email,
+            status: 'active',
+          },
+        });
+        const inviter = await prisma.user.findFirst({ where: { invitationCode: invitedBy } });
+        if (inviter) {
+          await prisma.user.update({
+            where: { id: inviter.id },
+            data: { referralCount: inviter.referralCount + 1 },
+          });
+        }
+      }
+
+      // Record agent referral
+      if (referrerAgentId) {
+        await prisma.agentReferral.create({
+          data: {
+            agentId: referrerAgentId,
+            userId: user.id,
+            fullName,
+            email: email.toLowerCase().trim(),
+            status: 'WAITING_DEPOSIT',
+          },
+        });
+      }
+
+      isNew = true;
+    }
+
+    // Generate tokens
+    const tokens = generateTokens(user.id, user.email);
+
+    // Create session
+    await prisma.userSession.create({
+      data: {
+        userId: user.id,
+        token: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    res.json({
+      user: {
+        id: user.id,
+        displayId: user.displayId,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        picture: user.picture,
+        invitationCode: user.invitationCode,
+        invitationLink: user.invitationLink,
+        invitedBy: user.invitedBy,
+        referralCount: user.referralCount,
+        totalReferralEarnings: user.totalReferralEarnings,
+        createdAt: user.createdAt,
+      },
+      ...tokens,
+      isNew,
+    });
+  } catch (error) {
+    console.error('Google auth error:', error);
+    res.status(500).json({ error: 'Google authentication failed' });
+  }
+});
+
 // Get current user
 authRouter.get('/me', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {

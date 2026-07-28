@@ -15,7 +15,9 @@ import { settingsRouter } from './routes/settings.js';
 import { userRouter } from './routes/user.js';
 import { verificationRouter } from './routes/verification.js';
 import { agentRouter } from './routes/agent.js';
+import { ewalletRouter } from './routes/ewallet.js';
 import { dashboardRouter } from './routes/dashboard.js';
+import { adminAgentsRouter } from './routes/adminAgents.js';
 import { authenticateToken } from './middleware/auth.js';
 
 dotenv.config();
@@ -57,10 +59,12 @@ app.use('/api/referrals', authenticateToken, referralRouter);
 app.use('/api/users', authenticateToken, userRouter);
 app.use('/api/verification', authenticateToken, verificationRouter);
 app.use('/api/agents', authenticateToken, agentRouter);
+app.use('/api/ewallets', authenticateToken, ewalletRouter);
 app.use('/api/dashboard', authenticateToken, dashboardRouter);
 
 // Admin routes
 app.use('/api/admin', adminRouter);
+app.use('/api/admin/agents', authenticateToken, adminAgentsRouter);
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {

@@ -2,28 +2,12 @@
  * Google OAuth Integration using Google Identity Services (GIS)
  * 
  * Uses the Google Sign-In with ID token flow.
- * No backend server required - Google's Identity Services handles everything client-side.
- * 
- * Setup Required:
- * 1. Go to https://console.cloud.google.com
- * 2. Create a project or select existing
- * 3. Go to APIs & Services → Credentials
- * 4. Create OAuth 2.0 Client ID (Web application)
- * 5. Add to Authorized JavaScript origins:
- *    - http://localhost:5173 (development)
- *    - https://coltionproduct.vercel.app (production)
- * 6. Copy the Client ID
- * 7. Create .env file with: VITE_GOOGLE_CLIENT_ID=your_client_id
+ * Sends the Google ID token to the backend for verification and user creation.
  */
 
-import { generateUniqueCode, getAllInvitationCodes } from './referralService';
-import { getReferralLink } from '../utils/domain';
-import { agentService } from './agentService';
-import { registrationGuard } from './registrationGuard';
 import { setTokens } from './api';
 
-const USERS_KEY = 'coltion_users';
-const SESSION_KEY = 'coltion_session';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export interface GoogleUserData {
   id: string;
@@ -32,25 +16,9 @@ export interface GoogleUserData {
   picture: string;
 }
 
-function generateId(): string {
-  return 'usr_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
-}
-
-function generateDisplayId(existingIds: string[]): string {
-  let id: string;
-  do {
-    id = '';
-    for (let i = 0; i < 10; i++) {
-      id += Math.floor(Math.random() * 10).toString();
-    }
-  } while (existingIds.includes(id));
-  return id;
-}
-
 export const googleAuth = {
   /**
    * Initialize Google Sign-In and return user data on success.
-   * Uses the Google Identity Services credential response flow.
    */
   async signIn(): Promise<GoogleUserData> {
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -86,7 +54,6 @@ export const googleAuth = {
     });
 
     return new Promise((resolve, reject) => {
-      // Use the credential-based flow (Google Sign-In)
       const tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: clientId,
         scope: 'openid profile email',
@@ -97,7 +64,6 @@ export const googleAuth = {
           }
 
           try {
-            // Decode the ID token from the credential response
             fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
               headers: { Authorization: `Bearer ${response.access_token}` }
             })
@@ -121,119 +87,47 @@ export const googleAuth = {
         },
       });
 
-      // Request access token (opens popup)
       tokenClient.requestAccessToken();
     });
   },
 
   /**
-   * Create or login a user with Google data.
-   * Uses the SAME invitation code system as website registration.
-   * Fully integrates with referral, agent, welcome bonus, and fingerprint systems.
+   * Login or register with Google via backend API.
+   * Sends the Google ID token to the server for verification.
    */
   async loginWithGoogle(): Promise<{ user: any; isNew: boolean }> {
     const googleUser = await this.signIn();
     
-    // Check if user already exists by email
-    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-    let existingUser = users.find((u: any) => u.email === googleUser.email);
-    let isNew = false;
+    // Read referral code from URL if present
+    let referralCode: string | null = null;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      referralCode = params.get('ref');
+    } catch {}
 
-    if (!existingUser) {
-      // === Use the SAME invitation code generator as website registration ===
-      const existingCodes = getAllInvitationCodes();
-      const invitationCode = generateUniqueCode(existingCodes);
-
-      // Generate unique display ID
-      const existingDisplayIds = users.map((u: any) => u.displayId).filter(Boolean);
-      const displayId = generateDisplayId(existingDisplayIds);
-
-      // Read referral code from URL if present
-      let invitedBy: string | null = null;
-      let referrerAgentId: string | null = null;
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const refCode = params.get('ref');
-        if (refCode) {
-          const normalizedCode = refCode.trim().toUpperCase();
-          // Check if it's a user invitation code
-          if (existingCodes.includes(normalizedCode)) {
-            invitedBy = normalizedCode;
-          }
-          // Check if it's an agent code
-          const agent = agentService.findAgentByCode(normalizedCode);
-          if (agent) {
-            referrerAgentId = agent.id;
-          }
-        }
-      } catch {}
-
-      const invitationLink = getReferralLink(invitationCode);
-
-      const newUser = {
-        id: generateId(),
-        displayId,
-        fullName: googleUser.fullName,
-        email: googleUser.email,
-        phone: '',
-        password: 'google_oauth_' + Date.now(),
-        createdAt: Date.now(),
-        // === Standard 8-character invitation code (NOT GOOGLE_ prefix) ===
-        invitationCode,
-        invitationLink,
-        invitedBy,
-        referralCount: 0,
-        totalReferralEarnings: 0,
+    // Send to backend for verification and user creation
+    const res = await fetch(`${API_BASE}/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         googleId: googleUser.id,
+        email: googleUser.email,
+        fullName: googleUser.fullName,
         picture: googleUser.picture,
-        referrerAgentId,
-      };
-      users.push(newUser);
-      localStorage.setItem(USERS_KEY, JSON.stringify(users));
-      existingUser = newUser;
-      isNew = true;
+        referralCode,
+      }),
+    });
 
-      // === POST-REGISTRATION STEPS (same as website registration) ===
-
-      // Record referral if invited by another user
-      if (invitedBy) {
-        try {
-          const { recordReferral } = await import('./referralService');
-          recordReferral(invitedBy, newUser.id, newUser.fullName, newUser.email);
-        } catch {}
-      }
-
-      // Record agent referral if applicable
-      if (referrerAgentId) {
-        try {
-          const refCode = new URLSearchParams(window.location.search).get('ref');
-          if (refCode) {
-            agentService.recordReferral(refCode, newUser.id, newUser.fullName, newUser.email);
-          }
-        } catch {}
-      }
-
-      // Award welcome bonus
-      try {
-        registrationGuard.awardWelcomeBonusBypass(newUser.id);
-      } catch {}
-
-      // Record fingerprint
-      try {
-        registrationGuard.recordFingerprint(newUser.id, newUser.fullName);
-      } catch {}
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Google authentication failed');
     }
 
-    // Create session
-    const { password: _, ...safeUser } = existingUser;
-    localStorage.setItem(SESSION_KEY, JSON.stringify(safeUser));
+    const data = await res.json();
+    
+    // Set JWT tokens
+    setTokens(data.accessToken, data.refreshToken);
 
-    // Set JWT tokens for API client (so AuthContext recognizes the session on reload)
-    setTokens(safeUser.id, safeUser.id + '_refresh');
-
-    // Notify dashboard
-    try { window.dispatchEvent(new CustomEvent('dashboard:update')); } catch {}
-
-    return { user: safeUser, isNew };
+    return { user: data.user, isNew: data.isNew };
   },
 };

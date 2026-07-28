@@ -1,69 +1,43 @@
 import type { EWallet } from '../types';
+import { apiService } from './api';
 
-const EWALLET_KEY = 'coltion_ewallets';
-
-function getWallets(): EWallet[] {
-  try {
-    const data = localStorage.getItem(EWALLET_KEY);
-    return data ? JSON.parse(data) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveWallets(wallets: EWallet[]): void {
-  localStorage.setItem(EWALLET_KEY, JSON.stringify(wallets));
-}
-
-function simpleHash(password: string): string {
-  let hash = 0;
-  for (let i = 0; i < password.length; i++) {
-    const char = password.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash |= 0;
-  }
-  return 'h_' + Math.abs(hash).toString(36);
-}
+/**
+ * E-Wallet service - all operations go through backend API.
+ * No localStorage used.
+ */
 
 export const ewalletService = {
-  getAllWallets(userId: string): EWallet[] {
-    const wallets = getWallets();
-    return wallets.filter(w => w.userId === userId);
-  },
-
-  getWallet(userId: string): EWallet | null {
-    const wallets = getWallets();
-    return wallets.find(w => w.userId === userId) || null;
-  },
-
-  saveWallet(userId: string, provider: 'GCash' | 'Maya', walletNumber: string, password: string): EWallet {
-    const wallets = getWallets();
-    const entry: EWallet = {
-      userId,
-      provider,
-      walletNumber,
-      withdrawalPassword: simpleHash(password),
-    };
-    wallets.push(entry);
-    saveWallets(wallets);
-    return entry;
-  },
-
-  updateWalletPassword(userId: string, password: string): void {
-    const wallets = getWallets();
-    const hashed = simpleHash(password);
-    for (const w of wallets) {
-      if (w.userId === userId) {
-        w.withdrawalPassword = hashed;
-      }
+  async getWallets(): Promise<EWallet[]> {
+    try {
+      return await apiService.get<EWallet[]>('/ewallets');
+    } catch {
+      return [];
     }
-    saveWallets(wallets);
   },
 
-  verifyPassword(userId: string, password: string): boolean {
-    const wallets = getWallets();
-    const userWallets = wallets.filter(w => w.userId === userId);
-    if (userWallets.length === 0) return false;
-    return userWallets[0].withdrawalPassword === simpleHash(password);
+  async addWallet(provider: string, walletNumber: string, withdrawalPassword: string): Promise<EWallet | null> {
+    try {
+      return await apiService.post<EWallet>('/ewallets', { provider, walletNumber, withdrawalPassword });
+    } catch {
+      return null;
+    }
+  },
+
+  async deleteWallet(id: string): Promise<boolean> {
+    try {
+      await apiService.delete(`/ewallets/${id}`);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  async verifyPassword(password: string): Promise<boolean> {
+    try {
+      const result = await apiService.post<{ valid: boolean }>('/ewallets/verify-password', { password });
+      return result.valid;
+    } catch {
+      return false;
+    }
   },
 };

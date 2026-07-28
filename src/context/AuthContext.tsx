@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import type { AuthState } from '../types';
+import type { AuthState, User } from '../types';
 import { apiService, setTokens, clearTokens, getAccessToken } from '../services/api';
 
 interface AuthContextType extends AuthState {
@@ -9,15 +9,6 @@ interface AuthContextType extends AuthState {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
-
-/** Read user from legacy localStorage session (used by Google OAuth) */
-function getLegacySession(): any | null {
-  try {
-    const data = localStorage.getItem('coltion_session');
-    if (!data) return null;
-    return JSON.parse(data);
-  } catch { return null; }
-}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = React.memo(({ children }) => {
   const [state, setState] = useState<AuthState>({
@@ -34,23 +25,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = React.memo(
           setState({ user, isAuthenticated: true, isLoading: false });
         })
         .catch(() => {
-          // Fallback: check legacy localStorage session (Google OAuth)
-          const legacyUser = getLegacySession();
-          if (legacyUser) {
-            setState({ user: legacyUser, isAuthenticated: true, isLoading: false });
-          } else {
-            clearTokens();
-            setState({ user: null, isAuthenticated: false, isLoading: false });
-          }
+          clearTokens();
+          setState({ user: null, isAuthenticated: false, isLoading: false });
         });
     } else {
-      // No API token - check legacy localStorage session (Google OAuth)
-      const legacyUser = getLegacySession();
-      if (legacyUser) {
-        setState({ user: legacyUser, isAuthenticated: true, isLoading: false });
-      } else {
-        setState(prev => ({ ...prev, isLoading: false }));
-      }
+      setState(prev => ({ ...prev, isLoading: false }));
     }
   }, []);
 

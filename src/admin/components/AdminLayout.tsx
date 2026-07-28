@@ -13,33 +13,19 @@ interface NavItem {
   id: string;
   label: string;
   icon: string;
-  badge?: number;
 }
 
 const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' },
-  { id: 'users', label: 'Users', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2', badge: 0 },
-  { id: 'deposits', label: 'Deposits', icon: 'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6', badge: 0 },
-  { id: 'withdrawals', label: 'Withdrawals', icon: 'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6', badge: 0 },
+  { id: 'users', label: 'Users', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' },
+  { id: 'agents', label: 'Agents', icon: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2' },
+  { id: 'deposits', label: 'Deposits', icon: 'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
+  { id: 'withdrawals', label: 'Withdrawals', icon: 'M19 14l-7 7m0 0l-7-7m7 7V3' },
   { id: 'orders', label: 'Orders', icon: 'M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2' },
   { id: 'transactions', label: 'Transactions', icon: 'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
-  { id: 'verification', label: 'Verification', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0 1 12 2.944a11.955 11.955 0 0 1-8.618 3.04A12.02 12.02 0 0 0 3 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z', badge: 0 },
-  { id: 'settings', label: 'Website Control', icon: 'M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4h8z', badge: 0 },
+  { id: 'verification', label: 'Verification', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0 1 12 2.944a11.955 11.955 0 0 1-8.618 3.04A12.02 12.02 0 0 0 3 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+  { id: 'settings', label: 'Website Control', icon: 'M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4h8z' },
 ];
-
-function getBadges(id: string): number {
-  try {
-    const txs = JSON.parse(localStorage.getItem('coltion_transactions') || '[]');
-    const verifications = JSON.parse(localStorage.getItem('coltion_verifications') || '[]');
-    switch (id) {
-      case 'deposits': return txs.filter((t: any) => t.type === 'deposit' && t.status === 'pending').length;
-      case 'withdrawals': return txs.filter((t: any) => t.type === 'withdrawal' && t.status === 'pending').length;
-      case 'verification': return verifications.filter((v: any) => v.status === 'PENDING').length;
-      case 'users': return 0;
-      default: return 0;
-    }
-  } catch { return 0; }
-}
 
 export const AdminLayout: React.FC<AdminLayoutProps> = React.memo(({ children, activePage, onNavigate, onLogout }) => {
   const [collapsed, setCollapsed] = useState(false);
@@ -50,7 +36,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = React.memo(({ children, a
 
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', background: '#0A0E1A' }}>
-      {/* Sidebar */}
       <motion.div
         animate={{ width: sidebarWidth }}
         transition={{ duration: 0.3, ease: 'easeInOut' }}
@@ -62,7 +47,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = React.memo(({ children, a
           overflow: 'hidden',
         }}
       >
-        {/* Logo */}
         <div style={{
           padding: collapsed ? '16px 12px' : '20px 20px',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
@@ -89,7 +73,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = React.memo(({ children, a
               C
             </div>
           )}
-          {/* Collapse button */}
           <button
             onClick={() => setCollapsed(!collapsed)}
             style={{
@@ -108,12 +91,10 @@ export const AdminLayout: React.FC<AdminLayoutProps> = React.memo(({ children, a
           </button>
         </div>
 
-        {/* Nav */}
         <nav style={{ flex: 1, overflow: 'auto', padding: collapsed ? '8px' : '12px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
           {navItems.map(item => {
             const isActive = activePage === item.id;
             const isHovered = hoveredItem === item.id;
-            const badge = getBadges(item.id);
 
             return (
               <motion.button
@@ -140,7 +121,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = React.memo(({ children, a
                   whiteSpace: 'nowrap',
                 }}
               >
-                {/* Active indicator glow */}
                 {isActive && (
                   <motion.div layoutId="activeIndicator" style={{
                     position: 'absolute', left: '-1px', top: '50%', transform: 'translateY(-50%)',
@@ -149,7 +129,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = React.memo(({ children, a
                   }} />
                 )}
 
-                {/* Icon with hover glow */}
                 <div style={{
                   position: 'relative',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -161,8 +140,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = React.memo(({ children, a
                     style={{ transition: 'all 0.2s ease' }}
                   >
                     <path d={item.icon} />
-                    {item.id === 'users' && <circle cx="9" cy="7" r="4" />}
-                    {item.id === 'verification' && <circle cx="12" cy="12" r="10" />}
                   </svg>
                   {isHovered && !isActive && (
                     <div style={{
@@ -173,37 +150,12 @@ export const AdminLayout: React.FC<AdminLayoutProps> = React.memo(({ children, a
                   )}
                 </div>
 
-                {/* Label */}
                 {!collapsed && item.label}
-
-                {/* Badge */}
-                {!collapsed && badge > 0 && (
-                  <span style={{
-                    marginLeft: 'auto', minWidth: '20px', height: '20px', borderRadius: '10px',
-                    background: '#EF4444', color: '#FFFFFF', fontSize: '10px', fontWeight: 700,
-                    fontFamily: "'Inter', sans-serif",
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    padding: '0 6px', boxShadow: '0 2px 8px rgba(239,68,68,0.3)',
-                    animation: 'pulse 2s infinite',
-                  }}>
-                    {badge}
-                  </span>
-                )}
-
-                {/* Collapsed badge dot */}
-                {collapsed && badge > 0 && (
-                  <span style={{
-                    position: 'absolute', top: '4px', right: '4px',
-                    width: '8px', height: '8px', borderRadius: '50%',
-                    background: '#EF4444', boxShadow: '0 0 8px rgba(239,68,68,0.5)',
-                  }} />
-                )}
               </motion.button>
             );
           })}
         </nav>
 
-        {/* Logout */}
         <div style={{ padding: collapsed ? '8px' : '12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
           <motion.button
             onClick={onLogout}
@@ -228,7 +180,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = React.memo(({ children, a
         </div>
       </motion.div>
 
-      {/* Main Content */}
       <div style={{
         marginLeft: sidebarWidth,
         flex: 1, minHeight: '100dvh',

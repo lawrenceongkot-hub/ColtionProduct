@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { colors, typography, borderRadius, shadows } from '../theme';
 import { useAuth } from '../context/AuthContext';
-import { getReferralStats } from '../services/referralService';
+import { getReferralStatsAPI } from '../services/referralService';
 import { useResponsive } from '../hooks/useResponsive';
 import { getReferralLink } from '../utils/domain';
 import type { ReferralStats } from '../types';
@@ -20,8 +20,7 @@ export const InviteSection: React.FC = React.memo(() => {
 
   useEffect(() => {
     if (user) {
-      const referralStats = getReferralStats(user.id, user.invitationCode);
-      setStats(referralStats);
+      getReferralStatsAPI(user.invitationCode).then(setStats);
     }
   }, [user]);
 

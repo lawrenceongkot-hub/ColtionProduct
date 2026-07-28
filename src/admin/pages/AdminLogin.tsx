@@ -1,54 +1,112 @@
-import React, { useState } from 'react';
-import { Button } from '../../components/Button';
-import { Input } from '../../components/Input';
+import React, { useState, useCallback } from 'react';
 import { adminAuth } from '../services/adminAuth';
+import { adminApi } from '../services/adminApi';
 
-interface Props {
+interface AdminLoginProps {
   onLogin: () => void;
 }
 
-export const AdminLogin: React.FC<Props> = React.memo(({ onLogin }) => {
+export const AdminLogin: React.FC<AdminLoginProps> = React.memo(({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async () => {
-    if (!username || !password) { setError('Please enter username and password.'); return; }
-    setLoading(true);
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
     setError('');
-    await new Promise(r => setTimeout(r, 600));
-    const result = adminAuth.login(username, password);
-    if (result) {
-      onLogin();
-    } else {
-      setError('Invalid username or password.');
+    setLoading(true);
+    try {
+      const result = await adminAuth.login(username, password);
+      if (result) {
+        onLogin();
+      } else {
+        setError('Invalid credentials');
+      }
+    } catch {
+      setError('Login failed. Check server connection.');
     }
     setLoading(false);
-  };
+  }, [username, password, onLogin]);
 
   return (
-    <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #0A0E1A 0%, #1A2235 100%)', padding: '16px' }}>
-      <div style={{ width: '100%', maxWidth: '420px', background: 'rgba(26,34,53,0.9)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '20px', padding: 'clamp(32px, 5vw, 48px)', boxShadow: '0 16px 48px rgba(0,0,0,0.35)' }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'linear-gradient(135deg, #0033CC, #0066FF)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+    <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0A0E1A', padding: '20px' }}>
+      <form onSubmit={handleSubmit} style={{
+        width: '100%', maxWidth: '380px',
+        background: 'rgba(17,24,39,0.9)', border: '1px solid rgba(255,255,255,0.06)',
+        borderRadius: '16px', padding: '32px',
+        display: 'flex', flexDirection: 'column', gap: '20px',
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#FFFFFF', fontFamily: "'Inter', sans-serif", background: 'linear-gradient(135deg, #0066FF, #00D4FF)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            Coltion Admin
+          </h1>
+          <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.35)', fontFamily: "'Inter', sans-serif", marginTop: '8px' }}>
+            Sign in to your account
+          </p>
+        </div>
+
+        {error && (
+          <div style={{
+            padding: '10px 14px', borderRadius: '8px',
+            background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)',
+            color: '#EF4444', fontSize: '13px', fontFamily: "'Inter', sans-serif", textAlign: 'center',
+          }}>
+            {error}
           </div>
-          <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#FFFFFF', fontFamily: "'Inter', sans-serif", marginBottom: '4px' }}>Coltion Product</h1>
-          <p style={{ fontSize: '14px', color: '#6B7280', fontFamily: "'Inter', sans-serif" }}>Admin Panel</p>
+        )}
+
+        <div>
+          <label style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', fontFamily: "'Inter', sans-serif", marginBottom: '6px', display: 'block' }}>
+            Username
+          </label>
+          <input
+            value={username}
+            onChange={e => setUsername(e.target.value)}
+            style={{
+              width: '100%', padding: '10px 14px', borderRadius: '8px',
+              background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+              color: '#FFFFFF', fontSize: '14px', fontFamily: "'Inter', sans-serif", outline: 'none',
+            }}
+            placeholder="Enter username"
+            required
+          />
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <Input label="Username" type="text" placeholder="Enter username" value={username} onChange={setUsername} required />
-          <Input label="Password" isPassword placeholder="Enter password" value={password} onChange={setPassword} required />
-          {error && <p style={{ fontSize: '13px', color: '#EF4444', fontFamily: "'Inter', sans-serif", textAlign: 'center' }}>{error}</p>}
-          <Button variant="primary" size="lg" fullWidth loading={loading} onClick={handleLogin}>Sign In</Button>
+        <div>
+          <label style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', fontFamily: "'Inter', sans-serif", marginBottom: '6px', display: 'block' }}>
+            Password
+          </label>
+          <input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            style={{
+              width: '100%', padding: '10px 14px', borderRadius: '8px',
+              background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+              color: '#FFFFFF', fontSize: '14px', fontFamily: "'Inter', sans-serif", outline: 'none',
+            }}
+            placeholder="Enter password"
+            required
+          />
         </div>
 
-        <p style={{ fontSize: '11px', color: '#4B5563', fontFamily: "'Inter', sans-serif", textAlign: 'center', marginTop: '24px' }}>
-          Default: admin / admin123
-        </p>
-      </div>
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            width: '100%', padding: '12px', borderRadius: '8px', border: 'none',
+            background: 'linear-gradient(135deg, #0066FF, #0052CC)',
+            color: '#FFFFFF', fontSize: '14px', fontWeight: 600,
+            fontFamily: "'Inter', sans-serif", cursor: loading ? 'not-allowed' : 'pointer',
+            opacity: loading ? 0.6 : 1,
+          }}
+        >
+          {loading ? 'Signing in...' : 'Sign In'}
+        </button>
+      </form>
     </div>
   );
 });
+
+AdminLogin.displayName = 'AdminLogin';

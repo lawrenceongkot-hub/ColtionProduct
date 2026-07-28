@@ -3,6 +3,7 @@ import { AdminLogin } from './pages/AdminLogin';
 import { AdminLayout } from './components/AdminLayout';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminUsers } from './pages/AdminUsers';
+import { AdminAgents } from './pages/AdminAgents';
 import { AdminDeposits } from './pages/AdminDeposits';
 import { AdminWithdrawals } from './pages/AdminWithdrawals';
 import { AdminOrders } from './pages/AdminOrders';
@@ -11,6 +12,7 @@ import { AdminSettings } from './pages/AdminSettings';
 import { AdminTransactions } from './pages/AdminTransactions';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { adminAuth } from './services/adminAuth';
+import { isAdminAuthenticated } from './services/adminApi';
 
 export const AdminPanel: React.FC = React.memo(() => {
   const [authenticated, setAuthenticated] = useState(false);
@@ -18,8 +20,7 @@ export const AdminPanel: React.FC = React.memo(() => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    adminAuth.init();
-    setAuthenticated(adminAuth.isAuthenticated());
+    setAuthenticated(isAdminAuthenticated());
     setLoading(false);
   }, []);
 
@@ -43,6 +44,7 @@ export const AdminPanel: React.FC = React.memo(() => {
     switch (page) {
       case 'dashboard': return <AdminDashboard onNavigate={handleNavigate} onLogout={handleLogout} />;
       case 'users': return <AdminUsers />;
+      case 'agents': return <AdminAgents />;
       case 'deposits': return <AdminDeposits />;
       case 'withdrawals': return <AdminWithdrawals />;
       case 'orders': return <AdminOrders />;
