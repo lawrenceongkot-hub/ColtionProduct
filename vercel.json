@@ -8,6 +8,5 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.ts" },
     { "source": "/(.*)", "destination": "/index.html" }
-  ],
-  "nodeVersion": "18.x"
+  ]
 }
