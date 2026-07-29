@@ -1,36 +1,38 @@
 /**
  * Vercel Serverless Function - Self-contained Express app
- * CommonJS version - avoids ESM issues with Vercel's api/ directory runtime
+ * ESM version - matches root package.json "type": "module"
  * 
- * FIX: Initialize Prisma lazily to avoid cold start hangs.
- * FIX: Added response timeouts to prevent hanging requests.
- * FIX: Health check responds immediately without any async initialization.
+ * FIX: Lazy PrismaClient to avoid cold start hangs.
+ * FIX: wrapHandler with timeout to prevent hanging requests.
+ * FIX: Health check responds instantly without any async initialization.
  */
-const express = require('express');
-const cors = require('cors');
-const { PrismaClient } = require('@prisma/client');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+import express from 'express';
+import cors from 'cors';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 console.log('=== SERVER START ===');
 
 // ============================================================
 // LAZY PRISMA - Don't create at module scope to avoid cold start hangs
 // ============================================================
-let prisma = null;
+let prismaPromise = null;
 
 function getPrisma() {
-  if (!prisma) {
+  if (!prismaPromise) {
     console.log('=== CREATING PRISMA CLIENT (lazy) ===');
     if (!process.env.DATABASE_URL) {
       console.error('=== FATAL: DATABASE_URL NOT FOUND ===');
-      throw new Error('DATABASE_URL environment variable is required but was not found. Set it in Vercel environment variables.');
+      throw new Error('DATABASE_URL environment variable is required but was not found.');
     }
     console.log('=== DATABASE_URL found:', process.env.DATABASE_URL.substring(0, 30) + '... ===');
-    prisma = new PrismaClient();
-    console.log('=== PRISMA CLIENT CREATED ===');
+    prismaPromise = import('@prisma/client').then(({ PrismaClient }) => {
+      const client = new PrismaClient();
+      console.log('=== PRISMA CLIENT CREATED ===');
+      return client;
+    });
   }
-  return prisma;
+  return prismaPromise;
 }
 
 const app = express();
@@ -47,7 +49,6 @@ console.log('=== MIDDLEWARE REGISTERED ===');
 // ============================================================
 function wrapHandler(fn) {
   return (req, res, next) => {
-    // Set a timeout for the entire request
     const timeout = setTimeout(() => {
       if (!res.headersSent) {
         console.error(`=== TIMEOUT: ${req.method} ${req.path} timed out ===`);
@@ -55,17 +56,13 @@ function wrapHandler(fn) {
       }
     }, 25000);
 
-    const done = () => {
-      clearTimeout(timeout);
-    };
-
+    const done = () => clearTimeout(timeout);
     res.on('finish', done);
     res.on('close', done);
     res.on('error', done);
 
     try {
       const result = fn(req, res, next);
-      
       if (result && typeof result.then === 'function') {
         result.catch(err => {
           clearTimeout(timeout);
@@ -104,12 +101,12 @@ app.get('/api/health', wrapHandler((_req, res) => {
 // ============================================================
 app.post('/api/auth/register', wrapHandler(async (req, res) => {
   console.log('=== REGISTER: REQUEST START ===');
-  const p = getPrisma();
+  const p = await getPrisma();
   const { fullName, email, phone, password } = req.body;
   console.log('=== REGISTER: BODY RECEIVED ===', { fullName: !!fullName, email: !!email, phone: !!phone, password: !!password });
 
   if (!fullName || !email || !phone || !password) {
-    return res.status(400).json({ error: 'Missing required fields' });
+    return res.status(400).json({ error: 'Missing required fields: fullName, email, phone, password' });
   }
 
   const existing = await p.user.findUnique({ where: { email: email.toLowerCase().trim() } });
@@ -153,17 +150,17 @@ app.post('/api/auth/register', wrapHandler(async (req, res) => {
 // ============================================================
 app.post('/api/auth/login', wrapHandler(async (req, res) => {
   console.log('=== LOGIN: REQUEST START ===');
-  const p = getPrisma();
+  const p = await getPrisma();
   const { email, password } = req.body;
 
   const user = await p.user.findUnique({ where: { email: email?.toLowerCase()?.trim() } });
   if (!user) {
-    return res.status(400).json({ error: 'No account found with this email.' });
+    return res.status(400).json({ error: 'No account found with this email address.' });
   }
 
   const valid = await bcrypt.compare(password, user.password);
   if (!valid) {
-    return res.status(400).json({ error: 'Incorrect password.' });
+    return res.status(400).json({ error: 'Incorrect password. Please try again.' });
   }
 
   const accessToken = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'fallback', { expiresIn: '15m' });
@@ -182,7 +179,7 @@ app.post('/api/auth/login', wrapHandler(async (req, res) => {
 // ============================================================
 app.post('/api/auth/google', wrapHandler(async (req, res) => {
   console.log('=== GOOGLE: REQUEST START ===');
-  const p = getPrisma();
+  const p = await getPrisma();
   const { googleId, email, fullName, picture } = req.body;
   if (!googleId || !email || !fullName) {
     return res.status(400).json({ error: 'Missing required Google user data' });
@@ -228,14 +225,9 @@ app.use(wrapHandler((_req, res) => {
 app.use((err, _req, res, _next) => {
   console.error('=== GLOBAL ERROR HANDLER CAUGHT ===');
   console.error('=== GLOBAL ERROR:', err?.message || err, '===');
-  
   if (res.headersSent) return;
-  
   try {
-    res.status(500).json({
-      error: 'Internal server error',
-      message: process.env.NODE_ENV === 'development' ? err?.message : undefined,
-    });
+    res.status(500).json({ error: 'Internal server error' });
   } catch (sendErr) {
     console.error('=== GLOBAL ERROR: Failed to send response:', sendErr?.message, '===');
   }
@@ -243,4 +235,4 @@ app.use((err, _req, res, _next) => {
 
 console.log('=== SERVER READY - awaiting requests ===');
 
-module.exports = app;
+export default app;
