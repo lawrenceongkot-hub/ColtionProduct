@@ -18,9 +18,9 @@ export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => 
   const [hasCreated, setHasCreated] = useState(false);
 
   // Reload request from service
-  const loadRequest = useCallback(() => {
+  const loadRequest = useCallback(async () => {
     if (!user) return null;
-    const existing = verificationService.getRequest(user.id);
+    const existing = await verificationService.getRequest(user.id);
     setRequest(existing);
     return existing;
   }, [user]);
@@ -47,13 +47,15 @@ export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => 
     if (!user) return;
 
     // Check if already has pending request
-    if (verificationService.hasPendingRequest(user.id)) {
+    const hasPending = await verificationService.hasPendingRequest(user.id);
+    if (hasPending) {
       loadRequest();
       return;
     }
 
     // Check if already verified
-    if (verificationService.isVerified(user.id)) {
+    const verified = await verificationService.isVerified(user.id);
+    if (verified) {
       loadRequest();
       return;
     }
@@ -64,7 +66,7 @@ export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => 
     // Simulate network delay
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    const result = verificationService.createRequest(user.id, user.email, user.phone);
+    const result = await verificationService.createRequest(user.id, user.email, user.phone);
     if (!result) {
       setError('Unable to create verification request. Please try again later.');
       setIsLoading(false);
