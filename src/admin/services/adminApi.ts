@@ -61,7 +61,7 @@ async function api<T = any>(path: string, options: RequestInit = {}): Promise<T>
 export const adminApi = {
   // Auth
   login: (username: string, password: string) =>
-    api<{ token: string; admin: any }>('/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+    api<{ accessToken: string; refreshToken: string; user: any }>('/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
 
   // Dashboard
   getDashboard: () => api<any>('/dashboard'),

@@ -15,8 +15,8 @@ export const adminAuth = {
   async login(username: string, password: string): Promise<AdminUser | null> {
     try {
       const data = await adminApi.login(username, password);
-      setAdminToken(data.token);
-      return data.admin;
+      setAdminToken(data.accessToken);
+      return data.user ? { id: data.user.id, username: data.user.email || username, role: data.user.role || 'admin', name: data.user.fullName || username } : null;
     } catch {
       return null;
     }
