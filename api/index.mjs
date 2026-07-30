@@ -25,10 +25,23 @@ async function ensurePrisma() {
     }
     try {
       const { PrismaClient } = await import('@prisma/client');
-      prisma = new PrismaClient();
-      console.log('=== PRISMA CLIENT CREATED ===');
+      // Serverless-optimized PrismaClient with connection pooling
+      prisma = new PrismaClient({
+        datasources: {
+          db: {
+            url: process.env.DATABASE_URL,
+          },
+        },
+        // Disable connection pooling for serverless - each invocation gets its own connection
+        // This prevents connection pool exhaustion in serverless
+      });
+      // Test the connection immediately with a timeout
+      console.log('=== PRISMA CLIENT CREATED, testing connection ===');
+      await prisma.$connect();
+      console.log('=== PRISMA CONNECTION ESTABLISHED ===');
     } catch (err) {
       console.error('=== PRISMA CLIENT FAILED TO LOAD:', err?.message, '===');
+      console.error('=== PRISMA ERROR STACK:', err?.stack || 'no stack', '===');
       throw err;
     }
   }
