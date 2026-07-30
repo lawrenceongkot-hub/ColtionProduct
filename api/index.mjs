@@ -175,24 +175,39 @@ app.get('/api/health', wrapHandler((_req, res) => {
 app.post('/api/auth/register', wrapHandler(async (req, res) => {
   console.log('=== REGISTER: REQUEST START ===');
   try {
+    console.log('=== REGISTER: STEP 1 - ensurePrisma ===');
     const p = await ensurePrisma();
+    console.log('=== REGISTER: STEP 2 - Prisma ready ===');
     const bc = await ensureBcrypt();
+    console.log('=== REGISTER: STEP 3 - bcrypt ready ===');
     const jw = await ensureJwt();
+    console.log('=== REGISTER: STEP 4 - jwt ready ===');
     
     const { fullName, email, phone, password, referralCode } = req.body;
     console.log('=== REGISTER: BODY RECEIVED ===', { fullName: !!fullName, email: !!email, phone: !!phone, password: !!password });
 
     if (!fullName || !email || !phone || !password) {
+      console.log('=== REGISTER: VALIDATION FAILED - missing fields ===');
       return res.status(400).json({ error: 'Missing required fields: fullName, email, phone, password' });
     }
 
+    console.log('=== REGISTER: STEP 5 - checking existing email ===');
     const existingEmail = await p.user.findUnique({ where: { email: email.toLowerCase().trim() } });
-    if (existingEmail) return res.status(400).json({ error: 'Email is already registered.' });
+    if (existingEmail) {
+      console.log('=== REGISTER: DUPLICATE EMAIL ===');
+      return res.status(400).json({ error: 'Email is already registered.' });
+    }
 
+    console.log('=== REGISTER: STEP 6 - checking existing phone ===');
     const existingPhone = await p.user.findFirst({ where: { phone } });
-    if (existingPhone) return res.status(400).json({ error: 'Mobile number is already registered.' });
+    if (existingPhone) {
+      console.log('=== REGISTER: DUPLICATE PHONE ===');
+      return res.status(400).json({ error: 'Mobile number is already registered.' });
+    }
 
+    console.log('=== REGISTER: STEP 7 - hashing password ===');
     const hashedPassword = await bc.hash(password, 12);
+    console.log('=== REGISTER: STEP 8 - password hashed ===');
     const displayId = generateDisplayId();
     const invitationCode = generateInvitationCode();
 
@@ -200,17 +215,21 @@ app.post('/api/auth/register', wrapHandler(async (req, res) => {
     let invitedBy = null;
     let referrerAgentId = null;
     if (referralCode) {
+      console.log('=== REGISTER: STEP 9 - checking referral code ===');
       const code = referralCode.trim().toUpperCase();
       const referrerUser = await p.user.findFirst({ where: { invitationCode: code } });
       const agent = await p.agentProfile.findUnique({ where: { agentCode: code } }).catch(() => null);
       if (referrerUser) invitedBy = code;
       if (agent) referrerAgentId = agent.id;
+      console.log('=== REGISTER: referral result ===', { invitedBy: !!invitedBy, referrerAgentId: !!referrerAgentId });
     }
 
     const baseUrl = process.env.FRONTEND_URL || 'https://coltionproduct.vercel.app';
     const invitationLink = `${baseUrl}/register?ref=${invitationCode}`;
 
+    console.log('=== REGISTER: STEP 10 - starting transaction ===');
     const result = await p.$transaction(async (tx) => {
+      console.log('=== REGISTER: TX - creating user ===');
       const user = await tx.user.create({
         data: {
           displayId,
@@ -226,10 +245,14 @@ app.post('/api/auth/register', wrapHandler(async (req, res) => {
           totalReferralEarnings: 0,
         },
       });
+      console.log('=== REGISTER: TX - user created ===', { userId: user.id });
 
+      console.log('=== REGISTER: TX - creating wallet ===');
       await tx.wallet.create({ data: { userId: user.id, main: 0, semWallet: 0, ongoing: 0 } });
+      console.log('=== REGISTER: TX - wallet created ===');
 
       if (invitedBy) {
+        console.log('=== REGISTER: TX - creating referral ===');
         await tx.referral.create({
           data: { inviterCode: invitedBy, referredUserId: user.id, referredName: fullName, referredEmail: email, status: 'active' },
         });
@@ -237,22 +260,29 @@ app.post('/api/auth/register', wrapHandler(async (req, res) => {
         if (inviter) {
           await tx.user.update({ where: { id: inviter.id }, data: { referralCount: inviter.referralCount + 1 } });
         }
+        console.log('=== REGISTER: TX - referral created ===');
       }
 
       if (referrerAgentId) {
+        console.log('=== REGISTER: TX - creating agent referral ===');
         await tx.agentReferral.create({
           data: { agentId: referrerAgentId, userId: user.id, fullName, email: email.toLowerCase().trim(), status: 'WAITING_DEPOSIT' },
         });
         await tx.agentProfile.update({ where: { id: referrerAgentId }, data: { totalReferrals: { increment: 1 } } });
+        console.log('=== REGISTER: TX - agent referral created ===');
       }
 
+      console.log('=== REGISTER: TX - generating tokens ===');
       const tokens = generateTokens(user.id, user.email);
+      console.log('=== REGISTER: TX - creating session ===');
       await tx.userSession.create({
         data: { userId: user.id, token: tokens.accessToken, refreshToken: tokens.refreshToken, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
       });
+      console.log('=== REGISTER: TX - session created ===');
 
       return { user, tokens };
     });
+    console.log('=== REGISTER: STEP 11 - transaction complete ===');
 
     res.status(201).json({
       user: { id: result.user.id, displayId, fullName, email, phone, invitationCode, invitationLink, invitedBy, createdAt: result.user.createdAt },
@@ -261,8 +291,9 @@ app.post('/api/auth/register', wrapHandler(async (req, res) => {
     console.log('=== REGISTER: RESPONSE SENT ===');
   } catch (error) {
     console.error('=== REGISTER ERROR:', error?.message || error, '===');
+    console.error('=== REGISTER ERROR STACK:', error?.stack || 'no stack', '===');
     if (error?.code === 'P2002') return res.status(409).json({ error: 'A user with this email already exists.' });
-    res.status(500).json({ error: 'Registration failed' });
+    res.status(500).json({ error: 'Registration failed: ' + (error?.message || 'Unknown error') });
   }
 }));
 
