@@ -1,15 +1,9 @@
 /**
- * Vercel Serverless Function - Complete Express app for ALL routes
- * 
- * Uses raw Vercel handler approach - Express app is created outside
- * the handler for cold start optimization, and we manually route
- * requests through Express.
+ * Vercel Serverless Function - Complete API handler
+ * All routes for the Coltion Product Investment platform.
  */
 import express from 'express';
 
-// ============================================================
-// Build the Express app once at module level (cold start)
-// ============================================================
 const app = express();
 
 // CORS
@@ -18,244 +12,357 @@ app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
   next();
 });
 
 app.use(express.json({ limit: '10mb' }));
 
 // ============================================================
-// HEALTH CHECK - No dependencies
+// HEALTH CHECK
 // ============================================================
 app.get('/api/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    server: 'running',
-    timestamp: new Date().toISOString(),
-  });
+  res.json({ status: 'ok', server: 'running', timestamp: new Date().toISOString() });
 });
 
 // ============================================================
-// ALL OTHER ROUTES - Use middleware pattern instead of app.all
-// Express 5 / path-to-regexp v8 doesn't support bare * wildcards
+// ALL OTHER ROUTES
 // ============================================================
 app.use('/api', async (req, res) => {
   try {
-    // Lazy load Prisma, bcrypt, jwt only when needed
     const { PrismaClient } = await import('@prisma/client');
     const bcrypt = await import('bcryptjs');
     const jwt = await import('jsonwebtoken');
 
-    const prisma = new PrismaClient({
-      datasources: { db: { url: process.env.DATABASE_URL } },
-    });
-
-    const { fullName, email, phone, password, referralCode } = req.body || {};
-    // Construct the full API path
+    const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+    const body = req.body || {};
     const p = '/api' + req.path;
     const m = req.method;
 
-    // ============================================================
+    // Helper: get auth token user
+    function getTokenUser() {
+      const h = req.headers['authorization'];
+      const t = h?.split(' ')[1];
+      return t ? jwt.verify(t, process.env.JWT_SECRET || 'fallback') : null;
+    }
+
+    // ============ AUTH ============
+
     // POST /api/auth/register
-    // ============================================================
     if (m === 'POST' && p === '/api/auth/register') {
-      if (!fullName || !email || !phone || !password) {
-        return res.status(400).json({ error: 'Missing required fields' });
-      }
-
-      const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
-      if (existing) return res.status(400).json({ error: 'Email is already registered.' });
-
-      const phoneExists = await prisma.user.findFirst({ where: { phone } });
-      if (phoneExists) return res.status(400).json({ error: 'Mobile number is already registered.' });
+      const { fullName, email, phone, password, referralCode } = body;
+      if (!fullName || !email || !phone || !password) return res.status(400).json({ error: 'Missing required fields' });
+      const e = email.toLowerCase().trim();
+      if (await prisma.user.findUnique({ where: { email: e } })) return res.status(400).json({ error: 'Email is already registered.' });
+      if (await prisma.user.findFirst({ where: { phone } })) return res.status(400).json({ error: 'Mobile number is already registered.' });
 
       const hashed = await bcrypt.hash(password, 12);
       const displayId = String(Math.floor(Math.random() * 10000000000)).padStart(10, '0');
       const invCode = Math.random().toString(36).substring(2, 10).toUpperCase();
       const baseUrl = process.env.FRONTEND_URL || 'https://coltionproduct.vercel.app';
 
-      const user = await prisma.user.create({
-        data: {
-          displayId, email: email.toLowerCase().trim(), password: hashed,
-          fullName, phone, invitationCode: invCode,
-          invitationLink: `${baseUrl}/register?ref=${invCode}`,
-          referralCount: 0, totalReferralEarnings: 0,
-        },
+      let invitedBy = null;
+      let referrerAgentId = null;
+      if (referralCode) {
+        const code = referralCode.trim().toUpperCase();
+        const ru = await prisma.user.findFirst({ where: { invitationCode: code } });
+        const ag = await prisma.agentProfile.findUnique({ where: { agentCode: code } }).catch(() => null);
+        if (ru) invitedBy = code;
+        if (ag) referrerAgentId = ag.id;
+      }
+
+      const user = await prisma.$transaction(async (tx) => {
+        const u = await tx.user.create({
+          data: { displayId, email: e, password: hashed, fullName, phone, invitationCode: invCode, invitationLink: `${baseUrl}/register?ref=${invCode}`, invitedBy, referrerAgentId, referralCount: 0, totalReferralEarnings: 0 },
+        });
+        await tx.wallet.create({ data: { userId: u.id, main: 0, semWallet: 0, ongoing: 0 } });
+        if (invitedBy) {
+          await tx.referral.create({ data: { inviterCode: invitedBy, referredUserId: u.id, referredName: fullName, referredEmail: email, status: 'active' } });
+          const inviter = await tx.user.findFirst({ where: { invitationCode: invitedBy } });
+          if (inviter) await tx.user.update({ where: { id: inviter.id }, data: { referralCount: inviter.referralCount + 1 } });
+        }
+        if (referrerAgentId) {
+          await tx.agentReferral.create({ data: { agentId: referrerAgentId, userId: u.id, fullName, email: e, status: 'WAITING_DEPOSIT' } });
+          await tx.agentProfile.update({ where: { id: referrerAgentId }, data: { totalReferrals: { increment: 1 } } });
+        }
+        const at = jwt.sign({ id: u.id, email: u.email }, process.env.JWT_SECRET || 'fallback', { expiresIn: '15m' });
+        const rt = jwt.sign({ id: u.id, email: u.email }, process.env.JWT_REFRESH_SECRET || 'fallback-r', { expiresIn: '7d' });
+        await tx.userSession.create({ data: { userId: u.id, token: at, refreshToken: rt, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } });
+        return { user: u, accessToken: at, refreshToken: rt };
       });
 
-      await prisma.wallet.create({ data: { userId: user.id, main: 0, semWallet: 0, ongoing: 0 } });
-
-      const accessToken = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'fallback', { expiresIn: '15m' });
-      const refreshToken = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_REFRESH_SECRET || 'fallback-r', { expiresIn: '7d' });
-
-      return res.status(201).json({
-        user: { id: user.id, displayId, fullName, email, phone, invitationCode: invCode, createdAt: user.createdAt },
-        accessToken, refreshToken,
-      });
+      return res.status(201).json({ user: { id: user.user.id, displayId, fullName, email, phone, invitationCode: invCode, invitedBy, createdAt: user.user.createdAt }, accessToken: user.accessToken, refreshToken: user.refreshToken });
     }
 
-    // ============================================================
     // POST /api/auth/login
-    // ============================================================
     if (m === 'POST' && p === '/api/auth/login') {
-      const user = await prisma.user.findUnique({ where: { email: email?.toLowerCase()?.trim() } });
+      const user = await prisma.user.findUnique({ where: { email: body.email?.toLowerCase()?.trim() } });
       if (!user) return res.status(400).json({ error: 'No account found' });
-      const valid = await bcrypt.compare(password, user.password);
-      if (!valid) return res.status(400).json({ error: 'Incorrect password' });
-      const accessToken = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'fallback', { expiresIn: '15m' });
-      const refreshToken = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_REFRESH_SECRET || 'fallback-r', { expiresIn: '7d' });
-      return res.json({
-        user: { id: user.id, displayId: user.displayId, fullName: user.fullName, email: user.email, phone: user.phone, invitationCode: user.invitationCode, referralCount: user.referralCount, totalReferralEarnings: user.totalReferralEarnings, picture: user.picture, createdAt: user.createdAt },
-        accessToken, refreshToken,
-      });
+      if (!await bcrypt.compare(body.password, user.password)) return res.status(400).json({ error: 'Incorrect password' });
+      const at = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'fallback', { expiresIn: '15m' });
+      const rt = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_REFRESH_SECRET || 'fallback-r', { expiresIn: '7d' });
+      await prisma.userSession.create({ data: { userId: user.id, token: at, refreshToken: rt, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } });
+      return res.json({ user: { id: user.id, displayId: user.displayId, fullName: user.fullName, email: user.email, phone: user.phone, invitationCode: user.invitationCode, referralCount: user.referralCount, totalReferralEarnings: user.totalReferralEarnings, picture: user.picture, createdAt: user.createdAt }, accessToken: at, refreshToken: rt });
     }
 
-    // ============================================================
     // POST /api/auth/google
-    // ============================================================
     if (m === 'POST' && p === '/api/auth/google') {
-      const { googleId, fullName, picture } = req.body;
-      if (!googleId || !email || !fullName) return res.status(400).json({ error: 'Missing Google data' });
-      let user = await prisma.user.findFirst({ where: { OR: [{ googleId }, { email: email.toLowerCase().trim() }] } });
+      const { googleId, fullName, picture } = body;
+      if (!googleId || !body.email || !fullName) return res.status(400).json({ error: 'Missing Google data' });
+      let user = await prisma.user.findFirst({ where: { OR: [{ googleId }, { email: body.email.toLowerCase().trim() }] } });
       let isNew = false;
       if (!user) {
         const displayId = String(Math.floor(Math.random() * 10000000000)).padStart(10, '0');
         const invCode = Math.random().toString(36).substring(2, 10).toUpperCase();
-        const baseUrl = process.env.FRONTEND_URL || 'https://coltionproduct.vercel.app';
-        user = await prisma.user.create({
-          data: { displayId, email: email.toLowerCase().trim(), password: 'google_' + Date.now(), fullName, phone: '', picture: picture || '', googleId, invitationCode: invCode, invitationLink: `${baseUrl}/register?ref=${invCode}`, referralCount: 0, totalReferralEarnings: 0 },
-        });
+        user = await prisma.user.create({ data: { displayId, email: body.email.toLowerCase().trim(), password: 'google_' + Date.now(), fullName, phone: '', picture: picture || '', googleId, invitationCode: invCode, invitationLink: `${process.env.FRONTEND_URL || 'https://coltionproduct.vercel.app'}/register?ref=${invCode}`, referralCount: 0, totalReferralEarnings: 0 } });
         await prisma.wallet.create({ data: { userId: user.id, main: 0, semWallet: 0, ongoing: 0 } });
         isNew = true;
       }
-      const accessToken = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'fallback', { expiresIn: '15m' });
-      const refreshToken = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_REFRESH_SECRET || 'fallback-r', { expiresIn: '7d' });
-      return res.json({ user: { id: user.id, displayId: user.displayId, fullName: user.fullName, email: user.email, invitationCode: user.invitationCode, createdAt: user.createdAt }, accessToken, refreshToken, isNew });
+      const at = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'fallback', { expiresIn: '15m' });
+      const rt = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_REFRESH_SECRET || 'fallback-r', { expiresIn: '7d' });
+      return res.json({ user: { id: user.id, displayId: user.displayId, fullName: user.fullName, email: user.email, invitationCode: user.invitationCode, createdAt: user.createdAt }, accessToken: at, refreshToken: rt, isNew });
     }
 
-    // ============================================================
     // POST /api/auth/logout
-    // ============================================================
     if (m === 'POST' && p === '/api/auth/logout') {
-      const authHeader = req.headers['authorization'];
-      const token = authHeader?.split(' ')[1];
-      if (token) {
-        try {
-          const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback');
-          await prisma.userSession.deleteMany({ where: { userId: decoded.id } });
-        } catch {}
-      }
+      try { const u = getTokenUser(); if (u) await prisma.userSession.deleteMany({ where: { userId: u.id } }); } catch {}
       return res.json({ success: true });
     }
 
-    // ============================================================
     // POST /api/auth/refresh
-    // ============================================================
     if (m === 'POST' && p === '/api/auth/refresh') {
-      const { refreshToken: rt } = req.body;
+      const { refreshToken: rt } = body;
       if (!rt) return res.status(400).json({ error: 'Refresh token required' });
       try {
         const decoded = jwt.verify(rt, process.env.JWT_REFRESH_SECRET || 'fallback-r');
         const session = await prisma.userSession.findFirst({ where: { refreshToken: rt, userId: decoded.id } });
         if (!session) return res.status(403).json({ error: 'Invalid refresh token' });
-        const tokens = {
-          accessToken: jwt.sign({ id: decoded.id, email: decoded.email }, process.env.JWT_SECRET || 'fallback', { expiresIn: '15m' }),
-          refreshToken: jwt.sign({ id: decoded.id, email: decoded.email }, process.env.JWT_REFRESH_SECRET || 'fallback-r', { expiresIn: '7d' }),
-        };
+        const tokens = { accessToken: jwt.sign({ id: decoded.id, email: decoded.email }, process.env.JWT_SECRET || 'fallback', { expiresIn: '15m' }), refreshToken: jwt.sign({ id: decoded.id, email: decoded.email }, process.env.JWT_REFRESH_SECRET || 'fallback-r', { expiresIn: '7d' }) };
         await prisma.userSession.update({ where: { id: session.id }, data: { token: tokens.accessToken, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } });
         return res.json(tokens);
-      } catch {
-        return res.status(403).json({ error: 'Invalid refresh token' });
-      }
+      } catch { return res.status(403).json({ error: 'Invalid refresh token' }); }
     }
 
-    // ============================================================
     // GET /api/auth/me
-    // ============================================================
     if (m === 'GET' && p === '/api/auth/me') {
-      const authHeader = req.headers['authorization'];
-      const token = authHeader?.split(' ')[1];
-      if (!token) return res.status(401).json({ error: 'Token required' });
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback');
-        const user = await prisma.user.findUnique({
-          where: { id: decoded.id },
-          select: { id: true, displayId: true, fullName: true, email: true, phone: true, invitationCode: true, invitationLink: true, invitedBy: true, referralCount: true, totalReferralEarnings: true, picture: true, googleId: true, createdAt: true, wallet: { select: { main: true, semWallet: true, ongoing: true } } },
-        });
+        const u = getTokenUser();
+        if (!u) return res.status(401).json({ error: 'Token required' });
+        const user = await prisma.user.findUnique({ where: { id: u.id }, select: { id: true, displayId: true, fullName: true, email: true, phone: true, invitationCode: true, invitationLink: true, invitedBy: true, referralCount: true, totalReferralEarnings: true, picture: true, googleId: true, createdAt: true, wallet: { select: { main: true, semWallet: true, ongoing: true } } } });
         if (!user) return res.status(404).json({ error: 'User not found' });
         return res.json(user);
-      } catch {
-        return res.status(403).json({ error: 'Invalid token' });
-      }
+      } catch { return res.status(403).json({ error: 'Invalid token' }); }
     }
 
-    // ============================================================
     // GET /api/auth/check
-    // ============================================================
     if (m === 'GET' && p === '/api/auth/check') {
-      const authHeader = req.headers['authorization'];
-      const token = authHeader?.split(' ')[1];
-      if (!token) return res.json({ authenticated: false });
-      try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback');
-        const user = await prisma.user.findUnique({ where: { id: decoded.id }, select: { id: true, email: true, fullName: true } });
-        if (!user) return res.json({ authenticated: false });
-        return res.json({ authenticated: true, user });
-      } catch {
-        return res.json({ authenticated: false });
-      }
+      try { const u = getTokenUser(); if (!u) return res.json({ authenticated: false }); const user = await prisma.user.findUnique({ where: { id: u.id }, select: { id: true, email: true, fullName: true } }); return res.json({ authenticated: !!user, user }); }
+      catch { return res.json({ authenticated: false }); }
     }
 
-    // ============================================================
-    // GET /api/wallet
-    // ============================================================
+    // ============ WALLET ============
     if (m === 'GET' && p === '/api/wallet') {
-      const authHeader = req.headers['authorization'];
-      const token = authHeader?.split(' ')[1];
-      if (!token) return res.status(401).json({ error: 'Token required' });
-      try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback');
-        const wallet = await prisma.wallet.findUnique({ where: { userId: decoded.id } });
-        if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
-        return res.json(wallet);
-      } catch {
-        return res.status(403).json({ error: 'Invalid token' });
-      }
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const w = await prisma.wallet.findUnique({ where: { userId: u.id } }); return res.json(w || { error: 'Wallet not found' }); }
+      catch { return res.status(403).json({ error: 'Invalid token' }); }
     }
 
-    // ============================================================
-    // GET /api/settings
-    // ============================================================
+    // ============ DEPOSITS ============
+    if (m === 'POST' && p === '/api/deposits') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { amount, method, walletNumber, proofOfPayment } = body; if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' }); const ref = 'DEP-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase(); const d = await prisma.deposit.create({ data: { userId: u.id, amount: parseFloat(amount), method: method || 'bank_transfer', reference: ref, walletNumber: walletNumber || '', proofOfPayment: proofOfPayment || '', status: 'PENDING' } }); return res.status(201).json(d); }
+      catch (e) { return res.status(500).json({ error: e.message }); }
+    }
+    if (m === 'GET' && p === '/api/deposits') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const d = await prisma.deposit.findMany({ where: { userId: u.id }, orderBy: { createdAt: 'desc' } }); return res.json(d); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    // ============ WITHDRAWALS ============
+    if (m === 'POST' && p === '/api/withdrawals') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { amount, method, walletNumber } = body; if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' }); const w = await prisma.wallet.findUnique({ where: { userId: u.id } }); if (!w || w.main < amount) return res.status(400).json({ error: 'Insufficient balance' }); const ref = 'WTH-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase(); const wd = await prisma.withdrawal.create({ data: { userId: u.id, amount: parseFloat(amount), method: method || 'bank_transfer', walletNumber: walletNumber || '', reference: ref, status: 'PENDING' } }); return res.status(201).json(wd); }
+      catch (e) { return res.status(500).json({ error: e.message }); }
+    }
+    if (m === 'GET' && p === '/api/withdrawals') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const w = await prisma.withdrawal.findMany({ where: { userId: u.id }, orderBy: { createdAt: 'desc' } }); return res.json(w); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    // ============ ORDERS / VIP ============
+    if (m === 'POST' && p === '/api/orders/purchase') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { vipLevel, buyAmount, vipName, vipBadge, dailyRate, dailyProfitPerDay, duration, totalReturn } = body; if (!vipLevel || !buyAmount) return res.status(400).json({ error: 'Invalid' }); const w = await prisma.wallet.findUnique({ where: { userId: u.id } }); if (!w || w.main < buyAmount) return res.status(400).json({ error: 'Insufficient balance' }); const o = await prisma.$transaction(async (tx) => { await tx.wallet.update({ where: { userId: u.id }, data: { main: { decrement: buyAmount }, ongoing: { increment: buyAmount } } }); return tx.investmentOrder.create({ data: { userId: u.id, vipLevel, vipName: vipName || '', vipBadge: vipBadge || '', buyAmount: parseFloat(buyAmount), dailyRate: dailyRate || 0, dailyProfitPerDay: dailyProfitPerDay || 0, duration: duration || 30, totalReturn: totalReturn || 0, status: 'ACTIVE', purchaseDate: new Date(), completedDays: 0, currentProfit: 0 } }); }); return res.status(201).json(o); }
+      catch (e) { return res.status(500).json({ error: e.message }); }
+    }
+    if (m === 'GET' && p === '/api/orders') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const o = await prisma.investmentOrder.findMany({ where: { userId: u.id }, orderBy: { purchaseDate: 'desc' } }); return res.json(o); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    // ============ TRANSACTIONS ============
+    if (m === 'GET' && p === '/api/transactions') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const t = await prisma.transaction.findMany({ where: { userId: u.id }, orderBy: { createdAt: 'desc' }, take: 50 }); return res.json(t); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    // ============ REFERRALS ============
+    if (m === 'GET' && p === '/api/referrals') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const user = await prisma.user.findUnique({ where: { id: u.id }, select: { invitationCode: true } }); if (!user) return res.status(404).json({ error: 'User not found' }); const r = await prisma.referral.findMany({ where: { inviterCode: user.invitationCode }, orderBy: { joinedDate: 'desc' } }); return res.json(r); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    // ============ USER PROFILE ============
+    if (m === 'PUT' && p === '/api/users/profile') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { fullName, phone } = body; const user = await prisma.user.update({ where: { id: u.id }, data: { ...(fullName && { fullName }), ...(phone && { phone }) } }); return res.json({ id: user.id, fullName: user.fullName, email: user.email, phone: user.phone }); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p === '/api/users/password') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { currentPassword, newPassword } = body; if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Required' }); const user = await prisma.user.findUnique({ where: { id: u.id } }); if (!await bcrypt.compare(currentPassword, user.password)) return res.status(400).json({ error: 'Current password is incorrect' }); await prisma.user.update({ where: { id: u.id }, data: { password: await bcrypt.hash(newPassword, 12) } }); return res.json({ success: true }); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    // ============ VERIFICATION ============
+    if (m === 'POST' && (p === '/api/verification' || p === '/api/verification/verify')) {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); return res.json({ success: true, verified: true }); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    // ============ EWALLETS ============
+    if (m === 'GET' && p === '/api/ewallets') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const e = await prisma.eWallet.findMany({ where: { userId: u.id } }); return res.json(e); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'POST' && p === '/api/ewallets') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { provider, walletNumber, withdrawalPassword } = body; if (!provider || !walletNumber) return res.status(400).json({ error: 'Required' }); const e = await prisma.eWallet.create({ data: { userId: u.id, provider, walletNumber, withdrawalPassword: withdrawalPassword || '' } }); return res.status(201).json(e); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'DELETE' && p.startsWith('/api/ewallets/')) {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const id = p.replace('/api/ewallets/', ''); await prisma.eWallet.deleteMany({ where: { id, userId: u.id } }); return res.json({ success: true }); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    // ============ AGENTS ============
+    if (m === 'GET' && p === '/api/agents/profile') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const a = await prisma.agentProfile.findUnique({ where: { userId: u.id } }); return res.json(a || { error: 'Agent profile not found' }); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'GET' && p === '/api/agents/referrals') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const a = await prisma.agentProfile.findUnique({ where: { userId: u.id } }); if (!a) return res.status(404).json({ error: 'Agent not found' }); const r = await prisma.agentReferral.findMany({ where: { agentId: a.id }, orderBy: { registeredDate: 'desc' } }); return res.json(r); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'GET' && p === '/api/agents/commissions') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const a = await prisma.agentProfile.findUnique({ where: { userId: u.id } }); if (!a) return res.status(404).json({ error: 'Agent not found' }); const c = await prisma.agentCommission.findMany({ where: { agentId: a.id }, orderBy: { createdAt: 'desc' } }); return res.json(c); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    // ============ DASHBOARD ============
+    if (m === 'GET' && p === '/api/dashboard') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const w = await prisma.wallet.findUnique({ where: { userId: u.id } }); const o = await prisma.investmentOrder.findMany({ where: { userId: u.id }, orderBy: { purchaseDate: 'desc' }, take: 5 }); const t = await prisma.transaction.findMany({ where: { userId: u.id }, orderBy: { createdAt: 'desc' }, take: 10 }); const us = await prisma.user.findUnique({ where: { id: u.id }, select: { referralCount: true, totalReferralEarnings: true, invitationCode: true, invitationLink: true } }); return res.json({ wallet: w, orders: o, transactions: t, referral: us }); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    // ============ SETTINGS (PUBLIC) ============
     if (m === 'GET' && p === '/api/settings') {
-      const settings = await prisma.platformSettings.findFirst();
-      return res.json(settings || {});
+      try { const s = await prisma.platformSettings.findFirst(); return res.json(s || {}); }
+      catch { return res.json({}); }
     }
 
-    // ============================================================
-    // DEFAULT: Route not found
-    // ============================================================
+    // ============ ADMIN ============
+    if (m === 'POST' && p === '/api/admin/login') {
+      try { const { email, username, password } = body; const loginId = (email || username || '').toLowerCase().trim(); if (!loginId || !password) return res.status(400).json({ error: 'Required' });
+        let user = await prisma.adminUser.findUnique({ where: { username: loginId } }).catch(() => null);
+        if (user) { if (!await bcrypt.compare(password, user.password)) return res.status(400).json({ error: 'Invalid' }); const at = jwt.sign({ id: user.id, email: user.username, role: 'admin' }, process.env.JWT_SECRET || 'fallback', { expiresIn: '15m' }); const rt = jwt.sign({ id: user.id, email: user.username, role: 'admin' }, process.env.JWT_REFRESH_SECRET || 'fallback-r', { expiresIn: '7d' }); return res.json({ user: { id: user.id, fullName: user.name, email: user.username, role: user.role }, accessToken: at, refreshToken: rt }); }
+        user = await prisma.user.findUnique({ where: { email: loginId } }); if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin access denied' }); if (!await bcrypt.compare(password, user.password)) return res.status(400).json({ error: 'Invalid' }); const at = jwt.sign({ id: user.id, email: user.email, role: 'admin' }, process.env.JWT_SECRET || 'fallback', { expiresIn: '15m' }); const rt = jwt.sign({ id: user.id, email: user.email, role: 'admin' }, process.env.JWT_REFRESH_SECRET || 'fallback-r', { expiresIn: '7d' }); return res.json({ user: { id: user.id, fullName: user.fullName, email: user.email, role: user.role }, accessToken: at, refreshToken: rt }); }
+      catch (e) { return res.status(500).json({ error: 'Admin login failed' }); }
+    }
+
+    if (m === 'GET' && p === '/api/admin/dashboard') {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const tu = await prisma.user.count(); const td = await prisma.deposit.aggregate({ _sum: { amount: true } }); const tw = await prisma.withdrawal.aggregate({ _sum: { amount: true } }); const pd = await prisma.deposit.count({ where: { status: 'PENDING' } }); const pw = await prisma.withdrawal.count({ where: { status: 'PENDING' } }); const ao = await prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }); const ru = await prisma.user.findMany({ orderBy: { createdAt: 'desc' }, take: 10, select: { id: true, fullName: true, email: true, createdAt: true } }); return res.json({ totalUsers: tu, totalDeposits: td._sum.amount || 0, totalWithdrawals: tw._sum.amount || 0, pendingDeposits: pd, pendingWithdrawals: pw, activeOrders: ao, recentUsers: ru }); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    if (m === 'GET' && p === '/api/admin/users') {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const users = await prisma.user.findMany({ orderBy: { createdAt: 'desc' }, include: { wallet: true } }); return res.json(users); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'DELETE' && p.startsWith('/api/admin/users/')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.replace('/api/admin/users/', ''); await prisma.user.delete({ where: { id } }); return res.json({ success: true }); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    if (m === 'GET' && p === '/api/admin/deposits') {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const d = await prisma.deposit.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(d); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.includes('/api/admin/deposits/') && p.endsWith('/approve')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const d = await prisma.deposit.update({ where: { id }, data: { status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } }); await prisma.wallet.update({ where: { userId: d.userId }, data: { main: { increment: d.amount } } }); return res.json(d); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.includes('/api/admin/deposits/') && p.endsWith('/reject')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { reason } = body; const d = await prisma.deposit.update({ where: { id }, data: { status: 'FAILED', rejectionReason: reason || 'Rejected', approvedBy: u.email } }); return res.json(d); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    if (m === 'GET' && p === '/api/admin/withdrawals') {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const w = await prisma.withdrawal.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(w); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.includes('/api/admin/withdrawals/') && p.endsWith('/approve')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const w = await prisma.withdrawal.update({ where: { id }, data: { status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } }); return res.json(w); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.includes('/api/admin/withdrawals/') && p.endsWith('/reject')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { reason } = body; const w = await prisma.withdrawal.update({ where: { id }, data: { status: 'FAILED', rejectionReason: reason || 'Rejected', approvedBy: u.email } }); await prisma.wallet.update({ where: { userId: w.userId }, data: { main: { increment: w.amount } } }); return res.json(w); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    if (m === 'GET' && p === '/api/admin/orders') {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const o = await prisma.investmentOrder.findMany({ orderBy: { purchaseDate: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(o); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    if (m === 'GET' && p === '/api/admin/transactions') {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const t = await prisma.transaction.findMany({ orderBy: { createdAt: 'desc' }, take: 100, include: { user: { select: { fullName: true, email: true } } } }); return res.json(t); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    if (m === 'GET' && p === '/api/admin/verifications') {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const v = await prisma.verificationRequest.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(v); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    if (m === 'GET' && p === '/api/admin/settings') {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const s = await prisma.platformSettings.findFirst(); return res.json(s || {}); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p === '/api/admin/settings') {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const s = await prisma.platformSettings.upsert({ where: { id: 'default' }, update: body, create: { id: 'default', ...body } }); return res.json(s); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    if (m === 'GET' && p === '/api/admin/agents') {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const a = await prisma.agentProfile.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(a); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.startsWith('/api/admin/agents/') && (p.endsWith('/suspend') || p.endsWith('/ban') || p.endsWith('/reactivate'))) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const status = p.endsWith('/suspend') ? 'suspended' : p.endsWith('/ban') ? 'banned' : 'active'; const a = await prisma.agentProfile.update({ where: { id }, data: { status } }); return res.json(a); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.startsWith('/api/admin/agents/') && p.endsWith('/force-logout')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const a = await prisma.agentProfile.findUnique({ where: { id } }); if (a) await prisma.userSession.deleteMany({ where: { userId: a.userId } }); return res.json({ success: true }); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'GET' && p.startsWith('/api/admin/agents/') && !p.includes('/referrals') && !p.includes('/commissions') && !p.endsWith('/force-logout') && !p.endsWith('/reset-code') && !p.endsWith('/reset-password') && !p.endsWith('/suspend') && !p.endsWith('/ban') && !p.endsWith('/reactivate')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const a = await prisma.agentProfile.findUnique({ where: { id }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(a || { error: 'Not found' }); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+
+    // ============ NOT FOUND ============
     return res.status(404).json({ error: 'Route not found', path: p, method: m });
 
   } catch (error) {
     console.error('=== API ERROR:', error?.message || error, '===');
-    if (!res.headersSent) {
-      res.status(500).json({ error: error?.message || 'Internal server error' });
-    }
+    if (!res.headersSent) res.status(500).json({ error: error?.message || 'Internal server error' });
   }
 });
 
-// ============================================================
-// SPA FALLBACK - Serve index.html for non-API routes
-// ============================================================
-// This is handled by vercel.json rewrites
-
-// ============================================================
-// VERCEL SERVERLESS HANDLER
-// ============================================================
 export default async function handler(req, res) {
-  // Let Express handle all API routes
   app(req, res);
 }
