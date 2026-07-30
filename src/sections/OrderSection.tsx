@@ -12,10 +12,14 @@ export const OrderSection: React.FC = React.memo(() => {
   const [orders, setOrders] = useState<OrderCalculated[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const loadOrders = useCallback(() => {
+  const loadOrders = useCallback(async () => {
     if (!user) return;
-    const userOrders = orderService.getUserOrders(user.id);
-    setOrders(userOrders);
+    try {
+      const userOrders = await orderService.getUserOrders(user.id);
+      setOrders(userOrders);
+    } catch {
+      setOrders([]);
+    }
     setIsLoading(false);
   }, [user]);
 
