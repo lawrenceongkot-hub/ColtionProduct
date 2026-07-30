@@ -219,8 +219,12 @@ app.use('/api', async (req, res) => {
     }
 
     // ============ VERIFICATION ============
+    if (m === 'GET' && p === '/api/verification') {
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const v = await prisma.verificationRequest.findUnique({ where: { userId: u.id } }); return res.json(v || { status: 'PENDING' }); }
+      catch { return res.json({ status: 'PENDING' }); }
+    }
     if (m === 'POST' && (p === '/api/verification' || p === '/api/verification/verify')) {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); return res.json({ success: true, verified: true }); }
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { documentType, documentNumber, documentImage } = body; if (documentType && documentNumber) { await prisma.verificationRequest.upsert({ where: { userId: u.id }, update: { email: u.email, mobileNumber: documentNumber, verificationCode: documentNumber, status: 'PENDING', expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) }, create: { userId: u.id, email: u.email, mobileNumber: documentNumber, verificationCode: documentNumber, status: 'PENDING', expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } }); } return res.json({ success: true, verified: true }); }
       catch { return res.status(500).json({ error: 'Failed' }); }
     }
 
