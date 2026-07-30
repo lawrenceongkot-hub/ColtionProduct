@@ -2,11 +2,11 @@
  * Vercel Serverless Function - Complete Express app for ALL routes
  * ESM version - matches root package.json "type": "module"
  * 
- * This is the SINGLE entry point for ALL /api/* requests on Vercel.
- * Every route the application needs is defined here.
+ * Uses serverless-http to wrap Express for Vercel serverless compatibility.
  */
 import express from 'express';
 import cors from 'cors';
+import serverless from 'serverless-http';
 
 console.log('=== SERVERLESS FUNCTION START ===');
 
@@ -25,20 +25,14 @@ async function ensurePrisma() {
     }
     try {
       const { PrismaClient } = await import('@prisma/client');
-      // Serverless-optimized PrismaClient with connection pooling
       prisma = new PrismaClient({
         datasources: {
           db: {
             url: process.env.DATABASE_URL,
           },
         },
-        // Disable connection pooling for serverless - each invocation gets its own connection
-        // This prevents connection pool exhaustion in serverless
       });
-      // Test the connection immediately with a timeout
-      console.log('=== PRISMA CLIENT CREATED, testing connection ===');
-      await prisma.$connect();
-      console.log('=== PRISMA CONNECTION ESTABLISHED ===');
+      console.log('=== PRISMA CLIENT CREATED ===');
     } catch (err) {
       console.error('=== PRISMA CLIENT FAILED TO LOAD:', err?.message, '===');
       console.error('=== PRISMA ERROR STACK:', err?.stack || 'no stack', '===');
@@ -818,25 +812,20 @@ app.post('/api/admin/login', wrapHandler(async (req, res) => {
     const loginId = (email || username || '').toLowerCase().trim();
     if (!loginId || !password) return res.status(400).json({ error: 'Email/username and password required' });
 
-    // Check AdminUser model first
     let user = await p.adminUser.findUnique({ where: { username: loginId } }).catch(() => null);
     if (user) {
       const bc = await ensureBcrypt();
       const valid = await bc.compare(password, user.password);
       if (!valid) return res.status(400).json({ error: 'Invalid credentials' });
-
       const tokens = generateTokens(user.id, user.username, 'admin');
       return res.json({ user: { id: user.id, fullName: user.name, email: user.username, role: user.role }, ...tokens });
     }
 
-    // Fallback: check regular User model
     user = await p.user.findUnique({ where: { email: loginId } });
     if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin access denied' });
-
     const bc = await ensureBcrypt();
     const valid = await bc.compare(password, user.password);
     if (!valid) return res.status(400).json({ error: 'Invalid credentials' });
-
     const tokens = generateTokens(user.id, user.email, 'admin');
     res.json({ user: { id: user.id, fullName: user.fullName, email: user.email, role: user.role }, ...tokens });
   } catch (error) {
@@ -898,7 +887,6 @@ app.put('/api/admin/deposits/:id/approve', authenticateToken, requireAdmin, wrap
   try {
     const p = await ensurePrisma();
     const deposit = await p.deposit.update({ where: { id: req.params.id }, data: { status: 'SUCCESS', approvedBy: req.user.email, completedAt: new Date() } });
-    // Credit user wallet
     await p.wallet.update({ where: { userId: deposit.userId }, data: { main: { increment: deposit.amount } } });
     res.json(deposit);
   } catch {
@@ -943,7 +931,6 @@ app.put('/api/admin/withdrawals/:id/reject', authenticateToken, requireAdmin, wr
     const p = await ensurePrisma();
     const { reason } = req.body;
     const withdrawal = await p.withdrawal.update({ where: { id: req.params.id }, data: { status: 'FAILED', rejectionReason: reason || 'Rejected by admin', approvedBy: req.user.email } });
-    // Refund user wallet
     await p.wallet.update({ where: { userId: withdrawal.userId }, data: { main: { increment: withdrawal.amount } } });
     res.json(withdrawal);
   } catch {
@@ -1176,4 +1163,7 @@ app.use((err, _req, res, _next) => {
 
 console.log('=== SERVERLESS FUNCTION READY - awaiting requests ===');
 
-export default app;
+// ============================================================
+// Wrap Express app with serverless-http for Vercel compatibility
+// ============================================================
+export const handler = serverless(app);
