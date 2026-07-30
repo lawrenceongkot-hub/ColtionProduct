@@ -204,7 +204,7 @@ app.use('/api', async (req, res) => {
 
     // ============ REFERRALS ============
     if (m === 'GET' && p === '/api/referrals') {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const user = await prisma.user.findUnique({ where: { id: u.id }, select: { invitationCode: true } }); if (!user) return res.status(404).json({ error: 'User not found' }); const r = await prisma.referral.findMany({ where: { inviterCode: user.invitationCode }, orderBy: { joinedDate: 'desc' } }); return res.json(r); }
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const user = await prisma.user.findUnique({ where: { id: u.id }, select: { invitationCode: true, referralCount: true, totalReferralEarnings: true } }); if (!user) return res.status(404).json({ error: 'User not found' }); const r = await prisma.referral.findMany({ where: { inviterCode: user.invitationCode }, orderBy: { joinedDate: 'desc' } }); return res.json({ referralCount: user.referralCount, totalEarnings: user.totalReferralEarnings, recentReferrals: r.map(x => ({ id: x.id, fullName: x.referredName, email: x.referredEmail, joinedDate: x.joinedDate, status: x.status })) }); }
       catch { return res.status(500).json({ error: 'Failed' }); }
     }
 
