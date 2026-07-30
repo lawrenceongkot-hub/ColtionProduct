@@ -31,8 +31,8 @@ app.get('/api/health', (_req, res) => {
 app.use('/api', async (req, res) => {
   try {
     const { PrismaClient } = await import('@prisma/client');
-    const bcrypt = await import('bcryptjs');
-    const jwt = await import('jsonwebtoken');
+    const { default: bcrypt } = await import('bcryptjs');
+    const { default: jwt } = await import('jsonwebtoken');
 
     const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
     const body = req.body || {};
