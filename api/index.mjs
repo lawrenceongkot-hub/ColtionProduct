@@ -146,18 +146,34 @@ app.use('/api', async (req, res) => {
     // GET /api/auth/me
     if (m === 'GET' && p === '/api/auth/me') {
       try {
-        const u = getTokenUser();
-        if (!u) return res.status(401).json({ error: 'Token required' });
-        const user = await prisma.user.findUnique({ where: { id: u.id }, select: { id: true, displayId: true, fullName: true, email: true, phone: true, invitationCode: true, invitationLink: true, invitedBy: true, referralCount: true, totalReferralEarnings: true, picture: true, googleId: true, createdAt: true, wallet: { select: { main: true, semWallet: true, ongoing: true } } } });
-        if (!user) return res.status(404).json({ error: 'User not found' });
+        const token = req.headers['authorization']?.split(' ')[1];
+        if (!token) return res.status(401).json({ error: 'No token provided' });
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback');
+        // Verify session exists in database
+        const session = await prisma.userSession.findFirst({ where: { token, userId: decoded.id } });
+        if (!session) return res.status(401).json({ error: 'Session expired' });
+        const user = await prisma.user.findUnique({ where: { id: decoded.id }, select: { id: true, displayId: true, fullName: true, email: true, phone: true, invitationCode: true, invitationLink: true, invitedBy: true, referralCount: true, totalReferralEarnings: true, picture: true, googleId: true, createdAt: true, wallet: { select: { main: true, semWallet: true, ongoing: true } } } });
+        if (!user) return res.status(401).json({ error: 'User not found' });
         return res.json(user);
-      } catch { return res.status(403).json({ error: 'Invalid token' }); }
+      } catch (e) {
+        // Token expired or invalid - return 401 so frontend clears it
+        return res.status(401).json({ error: 'Token expired or invalid' });
+      }
     }
 
     // GET /api/auth/check
     if (m === 'GET' && p === '/api/auth/check') {
-      try { const u = getTokenUser(); if (!u) return res.json({ authenticated: false }); const user = await prisma.user.findUnique({ where: { id: u.id }, select: { id: true, email: true, fullName: true } }); return res.json({ authenticated: !!user, user }); }
-      catch { return res.json({ authenticated: false }); }
+      try {
+        const token = req.headers['authorization']?.split(' ')[1];
+        if (!token) return res.json({ authenticated: false });
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback');
+        const session = await prisma.userSession.findFirst({ where: { token, userId: decoded.id } });
+        if (!session) return res.json({ authenticated: false });
+        const user = await prisma.user.findUnique({ where: { id: decoded.id }, select: { id: true, email: true, fullName: true } });
+        return res.json({ authenticated: !!user, user });
+      } catch {
+        return res.json({ authenticated: false });
+      }
     }
 
     // ============ WALLET ============
