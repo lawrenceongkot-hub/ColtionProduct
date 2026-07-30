@@ -1165,5 +1165,6 @@ console.log('=== SERVERLESS FUNCTION READY - awaiting requests ===');
 
 // ============================================================
 // Wrap Express app with serverless-http for Vercel compatibility
+// Vercel requires a default export for serverless functions
 // ============================================================
-export const handler = serverless(app);
+export default serverless(app);
