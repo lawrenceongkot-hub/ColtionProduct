@@ -20,6 +20,11 @@ export const ewalletService = {
     return this.getWallets();
   },
 
+  /** Alias for addWallet - used by AddEwalletScreen and WithdrawScreen */
+  async saveWallet(userId: string, provider: string, walletNumber: string, withdrawalPassword: string): Promise<EWallet | null> {
+    return this.addWallet(provider, walletNumber, withdrawalPassword);
+  },
+
   async addWallet(provider: string, walletNumber: string, withdrawalPassword: string): Promise<EWallet | null> {
     try {
       return await apiService.post<EWallet>('/ewallets', { provider, walletNumber, withdrawalPassword });
