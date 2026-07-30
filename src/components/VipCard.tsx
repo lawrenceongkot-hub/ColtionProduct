@@ -39,10 +39,7 @@ export const VipCard: React.FC<VipCardProps> = React.memo(({ plan, index, onPurc
     setIsBuying(true);
     setError(null);
 
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    const result = vipPurchaseService.purchasePlan(user.id, plan);
+    const result = await vipPurchaseService.purchasePlan(user.id, plan);
     if (result.success) {
       setError(null);
       if (onPurchaseComplete) onPurchaseComplete();
