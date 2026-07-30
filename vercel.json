@@ -1,9 +1,8 @@
 {
   "version": 2,
-  "buildCommand": "npx prisma generate --schema=api/prisma/schema.prisma && vite build",
+  "buildCommand": "npx prisma generate --schema=api/prisma/schema.prisma 2>/dev/null; vite build",
   "installCommand": "npm install",
   "outputDirectory": "dist",
-  "framework": "vite",
   "rewrites": [
     {
       "source": "/api/(.*)",
