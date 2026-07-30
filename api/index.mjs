@@ -39,9 +39,10 @@ app.get('/api/health', (_req, res) => {
 });
 
 // ============================================================
-// ALL OTHER ROUTES are handled by the catch-all
+// ALL OTHER ROUTES - Use middleware pattern instead of app.all
+// Express 5 / path-to-regexp v8 doesn't support bare * wildcards
 // ============================================================
-app.all('/api/*', async (req, res) => {
+app.use('/api', async (req, res) => {
   try {
     // Lazy load Prisma, bcrypt, jwt only when needed
     const { PrismaClient } = await import('@prisma/client');
@@ -53,7 +54,9 @@ app.all('/api/*', async (req, res) => {
     });
 
     const { fullName, email, phone, password, referralCode } = req.body || {};
-    const { path: p, method: m } = req;
+    // Construct the full API path
+    const p = '/api' + req.path;
+    const m = req.method;
 
     // ============================================================
     // POST /api/auth/register
