@@ -15,6 +15,11 @@ export const ewalletService = {
     }
   },
 
+  /** Alias for getWallets - used by WithdrawScreen */
+  async getAllWallets(): Promise<EWallet[]> {
+    return this.getWallets();
+  },
+
   async addWallet(provider: string, walletNumber: string, withdrawalPassword: string): Promise<EWallet | null> {
     try {
       return await apiService.post<EWallet>('/ewallets', { provider, walletNumber, withdrawalPassword });
