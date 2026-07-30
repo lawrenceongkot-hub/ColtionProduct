@@ -8,8 +8,7 @@
     "build": "npx --yes vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "postinstall": "cd server && npx prisma generate --schema=prisma/schema.prisma",
-    "vercel-build": "cd api && npx prisma generate --schema=prisma/schema.prisma && cd .. && npm run postinstall && vite build"
+    "vercel-build": "npx prisma generate --schema=api/prisma/schema.prisma && vite build"
   },
   "dependencies": {
     "framer-motion": "^12.42.2",

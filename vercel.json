@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "cd api && npx prisma generate --schema=prisma/schema.prisma && cd .. && npm run postinstall && vite build",
+  "buildCommand": "npx prisma generate --schema=api/prisma/schema.prisma && vite build",
   "installCommand": "npm install",
   "outputDirectory": "dist",
   "framework": "vite",
