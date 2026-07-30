@@ -21,16 +21,6 @@ export const AgentSection: React.FC<AgentSectionProps> = React.memo(({ onBack })
   const [copiedLink, setCopiedLink] = useState(false);
   const [tab, setTab] = useState<'overview' | 'referrals' | 'commissions'>('overview');
 
-  useEffect(() => {
-    if (!user) return;
-    const agent = agentService.getOrCreateAgent(user.id, user.fullName);
-    setProfile(agent);
-    setReferrals(agentService.getReferrals(agent.id));
-    setCommissions(agentService.getCommissions(agent.id));
-  }, [user]);
-
-  if (!user || !profile) return null;
-
   const copyToClipboard = useCallback(async (text: string, type: 'code' | 'link') => {
     try {
       await navigator.clipboard.writeText(text);
@@ -45,6 +35,7 @@ export const AgentSection: React.FC<AgentSectionProps> = React.memo(({ onBack })
   }, []);
 
   const handleShare = useCallback(async () => {
+    if (!profile) return;
     const shareText = `Join Coltion Product using my agent invitation link and start earning today!\n\n${profile.agentLink}`;
     if (navigator.share) {
       try { await navigator.share({ title: 'Join Coltion Product', text: shareText, url: profile.agentLink }); } catch {}
@@ -52,6 +43,8 @@ export const AgentSection: React.FC<AgentSectionProps> = React.memo(({ onBack })
       await copyToClipboard(profile.agentLink, 'link');
     }
   }, [profile, copyToClipboard]);
+
+  if (!user || !profile) return null;
 
   return (
     <div style={{ maxWidth: 'clamp(320px, 90vw, 800px)', margin: '0 auto', padding: 'clamp(16px, 3vw, 32px)', paddingBottom: 'clamp(40px, 5vh, 60px)' }}>
@@ -61,7 +54,6 @@ export const AgentSection: React.FC<AgentSectionProps> = React.memo(({ onBack })
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>Back
       </motion.button>
 
-      {/* Header */}
       <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(16px, 2.5vh, 24px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ width: 'clamp(48px, 6vw, 56px)', height: 'clamp(48px, 6vw, 56px)', borderRadius: '50%', background: colors.bgGlassMedium, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -73,7 +65,6 @@ export const AgentSection: React.FC<AgentSectionProps> = React.memo(({ onBack })
           </div>
         </div>
 
-        {/* Invitation Code & Link */}
         <div style={{ width: '100%', background: colors.gradientGlass, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.xl, padding: 'clamp(16px, 2.5vw, 24px)', display: 'flex', flexDirection: 'column', gap: 'clamp(12px, 1.5vh, 16px)' }}>
           <div>
             <p style={{ fontSize: typography.sm, fontWeight: typography.semibold, color: colors.textSecondary, fontFamily: typography.fontFamily, marginBottom: '6px' }}>Invitation Code</p>
@@ -108,7 +99,6 @@ export const AgentSection: React.FC<AgentSectionProps> = React.memo(({ onBack })
           </motion.button>
         </div>
 
-        {/* Stats Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: responsive.isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 'clamp(8px, 1.2vw, 12px)' }}>
           <StatCard label="Total Referrals" value={profile.totalReferrals.toString()} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>} delay={0} />
           <StatCard label="Qualified Deposits" value={profile.qualifiedDeposits.toString()} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.success} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>} delay={0.05} />
@@ -116,7 +106,6 @@ export const AgentSection: React.FC<AgentSectionProps> = React.memo(({ onBack })
           <StatCard label="Available Balance" value={FORMAT_CURRENCY(profile.availableBalance)} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.warning} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></svg>} delay={0.15} />
         </div>
 
-        {/* Tabs */}
         <div style={{ display: 'flex', gap: '8px' }}>
           {(['overview', 'referrals', 'commissions'] as const).map(t => (
             <motion.button key={t} onClick={() => setTab(t)}
@@ -127,7 +116,6 @@ export const AgentSection: React.FC<AgentSectionProps> = React.memo(({ onBack })
           ))}
         </div>
 
-        {/* Referrals Table */}
         {tab === 'referrals' && (
           <div style={{ width: '100%', background: colors.gradientGlass, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.xl, overflow: 'hidden' }}>
             {referrals.length === 0 ? (
@@ -152,7 +140,6 @@ export const AgentSection: React.FC<AgentSectionProps> = React.memo(({ onBack })
           </div>
         )}
 
-        {/* Commissions Table */}
         {tab === 'commissions' && (
           <div style={{ width: '100%', background: colors.gradientGlass, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.xl, overflow: 'hidden' }}>
             {commissions.length === 0 ? (
@@ -178,7 +165,6 @@ export const AgentSection: React.FC<AgentSectionProps> = React.memo(({ onBack })
           </div>
         )}
 
-        {/* Overview tab */}
         {tab === 'overview' && (
           <div style={{ width: '100%', background: colors.gradientGlass, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.xl, padding: 'clamp(20px, 3vw, 28px)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <h3 style={{ fontSize: typography.md, fontWeight: typography.bold, color: colors.textPrimary, fontFamily: typography.fontFamily }}>How It Works</h3>
