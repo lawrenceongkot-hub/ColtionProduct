@@ -69,6 +69,18 @@ export const adminApi = {
   // Users
   getUsers: () => api<any[]>('/users'),
   deleteUser: (id: string) => api(`/users/${id}`, { method: 'DELETE' }),
+  getAuditLog: (userId: string) => api<any[]>(`/users/${userId}/audit`),
+  getWalletBalances: (userId: string) => api<any>(`/users/${userId}/wallet`),
+  addMainWallet: (userId: string, amount: number) => api(`/users/${userId}/wallet/main/add`, { method: 'PUT', body: JSON.stringify({ amount }) }),
+  deductMainWallet: (userId: string, amount: number) => api(`/users/${userId}/wallet/main/deduct`, { method: 'PUT', body: JSON.stringify({ amount }) }),
+  addSemWallet: (userId: string, amount: number) => api(`/users/${userId}/wallet/sem/add`, { method: 'PUT', body: JSON.stringify({ amount }) }),
+  deductSemWallet: (userId: string, amount: number) => api(`/users/${userId}/wallet/sem/deduct`, { method: 'PUT', body: JSON.stringify({ amount }) }),
+  banUser: (userId: string) => api(`/users/${userId}/ban`, { method: 'PUT' }),
+  unbanUser: (userId: string) => api(`/users/${userId}/unban`, { method: 'PUT' }),
+  suspendUser: (userId: string) => api(`/users/${userId}/suspend`, { method: 'PUT' }),
+  activateUser: (userId: string) => api(`/users/${userId}/activate`, { method: 'PUT' }),
+  forceLogout: (userId: string) => api(`/users/${userId}/force-logout`, { method: 'PUT' }),
+  changePassword: (userId: string, newPassword: string) => api(`/users/${userId}/password`, { method: 'PUT', body: JSON.stringify({ newPassword }) }),
 
   // Deposits
   getDeposits: () => api<any[]>('/deposits'),
@@ -84,6 +96,11 @@ export const adminApi = {
 
   // Orders
   getOrders: () => api<any[]>('/orders'),
+  pauseOrder: (orderId: string) => api(`/orders/${orderId}/pause`, { method: 'PUT' }),
+  resumeOrder: (orderId: string) => api(`/orders/${orderId}/resume`, { method: 'PUT' }),
+  cancelOrder: (orderId: string, reason?: string) => api(`/orders/${orderId}/cancel`, { method: 'PUT', body: JSON.stringify({ reason }) }),
+  completeOrder: (orderId: string) => api(`/orders/${orderId}/complete`, { method: 'PUT' }),
+  manualCreditProfit: (orderId: string) => api(`/orders/${orderId}/credit-profit`, { method: 'PUT' }),
 
   // Transactions
   getTransactions: () => api<any[]>('/transactions'),

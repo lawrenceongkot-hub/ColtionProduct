@@ -26,4 +26,22 @@ export const depositService = {
       return false;
     }
   },
+
+  /** Search deposits by reference, user name, or email */
+  searchDeposits(search: string, deposits: any[]): any[] {
+    if (!search.trim()) return deposits;
+    const q = search.toLowerCase();
+    return deposits.filter(d =>
+      (d.reference || '').toLowerCase().includes(q) ||
+      (d.user?.fullName || '').toLowerCase().includes(q) ||
+      (d.user?.email || '').toLowerCase().includes(q) ||
+      (d.method || '').toLowerCase().includes(q)
+    );
+  },
+
+  exportToCSV(deposits: any[]): string {
+    const header = 'Reference,User,Email,Amount,Method,Status,Created';
+    const rows = deposits.map(d => `${d.reference || ''},${d.user?.fullName || ''},${d.user?.email || ''},${d.amount || 0},${d.method || ''},${d.status || ''},${d.createdAt || ''}`);
+    return [header, ...rows].join('\n');
+  },
 };

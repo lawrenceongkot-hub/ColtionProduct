@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { settingsService } from '../services/settingsService';
+import React, { useState, useEffect } from 'react';
+import { settingsService, DEFAULT_SETTINGS } from '../services/settingsService';
 import type { PlatformSettings } from '../services/settingsService';
 
 // ==================== STATIC HELPER COMPONENTS (defined OUTSIDE) ====================
@@ -14,8 +14,6 @@ const COUNTRIES = [
   { code: 'CN', name: 'China' }, { code: 'IN', name: 'India' },
   { code: 'DE', name: 'Germany' }, { code: 'FR', name: 'France' },
 ];
-
-const INITIAL_SETTINGS = settingsService.getSettings();
 
 // These MUST be outside the main component to prevent React remounting on every render
 const Section: React.FC<{ title: string; icon: string; children: React.ReactNode }> = ({ title, icon, children }) => (
@@ -56,7 +54,7 @@ const InputField: React.FC<{ label: string; value: string; onChange: (v: string)
 // ==================== MAIN COMPONENT ====================
 
 export const AdminSettings: React.FC = React.memo(() => {
-  const [settings, setSettings] = useState<PlatformSettings>(INITIAL_SETTINGS);
+  const [settings, setSettings] = useState<PlatformSettings>(DEFAULT_SETTINGS);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -65,15 +63,20 @@ export const AdminSettings: React.FC = React.memo(() => {
   const [newBlacklistIp, setNewBlacklistIp] = useState('');
   const [newBlacklistReason, setNewBlacklistReason] = useState('');
 
+  // Load settings from backend on mount
+  useEffect(() => {
+    settingsService.getSettings().then(s => setSettings(s));
+  }, []);
+
   const updateField = (key: string, value: any) => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
     setErrorMsg('');
     setSuccessMsg('');
-    const result = settingsService.saveSettings(settings);
+    const result = await settingsService.saveSettings(settings);
     setSaving(false);
     if (result.success) setSuccessMsg('Settings saved successfully');
     else setErrorMsg(result.error || 'Failed to save settings');
