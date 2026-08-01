@@ -7,10 +7,11 @@ async function main() {
   console.log('Seeding database...');
 
   // Create default admin
-  const adminPassword = await bcrypt.hash('admin123', 12);
+  // Username stored lowercase 'admin' — login lowercases input, so 'Admin' works
+  const adminPassword = await bcrypt.hash('Ryeonbaal2004', 12);
   await prisma.adminUser.upsert({
     where: { username: 'admin' },
-    update: {},
+    update: { password: adminPassword, name: 'Super Admin', role: 'admin' },
     create: {
       username: 'admin',
       password: adminPassword,
@@ -82,7 +83,7 @@ async function main() {
   }
 
   console.log('Seed complete!');
-  console.log('Admin login: admin / admin123');
+  console.log('Admin login: Admin / Ryeonbaal2004');
 }
 
 main()
