@@ -116,10 +116,11 @@ verificationRouter.post('/', async (req: AuthRequest, res: Response) => {
     // Generate a unique code (server-side only)
     let code = generateVerificationCode();
     // Ensure uniqueness in the database
-    let existing = await prisma.user.findUnique({ where: { verificationCode: code } });
+    // NOTE: verificationCode is NOT a unique field, so use findFirst not findUnique
+    let existing = await prisma.user.findFirst({ where: { verificationCode: code } });
     while (existing) {
       code = generateVerificationCode();
-      existing = await prisma.user.findUnique({ where: { verificationCode: code } });
+      existing = await prisma.user.findFirst({ where: { verificationCode: code } });
     }
 
     // Save the permanent code to the User table

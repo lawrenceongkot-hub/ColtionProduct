@@ -273,8 +273,8 @@ app.use('/api', async (req, res) => {
           return res.json({ userId: user.id, email: user.email, mobileNumber: finalMobile, verificationCode: user.verificationCode, status: user.verificationStatus, verifiedAt: user.verifiedAt, requestedAt: user.verificationRequestedAt, message: 'Existing verification code returned.' });
         }
         let code = genVerificationCode();
-        let existing = await prisma.user.findUnique({ where: { verificationCode: code } });
-        while (existing) { code = genVerificationCode(); existing = await prisma.user.findUnique({ where: { verificationCode: code } }); }
+        let existing = await prisma.user.findFirst({ where: { verificationCode: code } });
+        while (existing) { code = genVerificationCode(); existing = await prisma.user.findFirst({ where: { verificationCode: code } }); }
         const updated = await prisma.user.update({
           where: { id: user.id },
           data: { phone: finalMobile, verificationCode: code, verificationStatus: 'PENDING', verificationRequestedAt: new Date() },
