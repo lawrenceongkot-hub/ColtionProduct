@@ -58,6 +58,10 @@ model User {
   referrerAgentId      String?
   referralCount        Int      @default(0)
   totalReferralEarnings Float   @default(0)
+  verificationCode     String?
+  verificationStatus   String   @default("NONE")
+  verifiedAt           DateTime?
+  verificationRequestedAt DateTime?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

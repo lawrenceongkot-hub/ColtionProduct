@@ -235,13 +235,72 @@ app.use('/api', async (req, res) => {
     }
 
     // ============ VERIFICATION ============
-    if (m === 'GET' && p === '/api/verification') {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const v = await prisma.verificationRequest.findUnique({ where: { userId: u.id } }); return res.json(v || { status: 'PENDING' }); }
-      catch { return res.json({ status: 'PENDING' }); }
+    // Generate a unique 8-12 char uppercase alphanumeric verification code server-side
+    function genVerificationCode() {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+      const len = 8 + Math.floor(Math.random() * 5);
+      let c = '';
+      for (let i = 0; i < len; i++) c += chars[Math.floor(Math.random() * chars.length)];
+      return c;
     }
-    if (m === 'POST' && (p === '/api/verification' || p === '/api/verification/verify')) {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { documentType, documentNumber, documentImage } = body; if (documentType && documentNumber) { await prisma.verificationRequest.upsert({ where: { userId: u.id }, update: { email: u.email, mobileNumber: documentNumber, verificationCode: documentNumber, status: 'PENDING', expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) }, create: { userId: u.id, email: u.email, mobileNumber: documentNumber, verificationCode: documentNumber, status: 'PENDING', expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } }); } return res.json({ success: true, verified: true }); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+
+    if (m === 'GET' && p === '/api/verification') {
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const user = await prisma.user.findUnique({ where: { id: u.id }, select: { id: true, email: true, phone: true, verificationCode: true, verificationStatus: true, verifiedAt: true, verificationRequestedAt: true } });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        return res.json({ userId: user.id, email: user.email, mobileNumber: user.phone, verificationCode: user.verificationCode, status: user.verificationStatus, verifiedAt: user.verifiedAt, requestedAt: user.verificationRequestedAt });
+      } catch { return res.status(500).json({ error: 'Failed to get verification status' }); }
+    }
+
+    if (m === 'POST' && p === '/api/verification') {
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const { mobileNumber } = body;
+        const user = await prisma.user.findUnique({ where: { id: u.id } });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        if (!user.email) return res.status(400).json({ error: 'Email is required for verification.' });
+        let finalMobile = mobileNumber || user.phone || '';
+        if (!finalMobile) return res.status(400).json({ error: 'Mobile number is required for verification.' });
+        if (!/^09\d{9}$/.test(finalMobile)) return res.status(400).json({ error: 'Please enter a valid 11-digit mobile number (e.g., 09171234567).' });
+        if (finalMobile !== user.phone) {
+          const duplicate = await prisma.user.findFirst({ where: { phone: finalMobile, id: { not: user.id } } });
+          if (duplicate) return res.status(400).json({ error: 'This mobile number is already registered to another account.' });
+        }
+        // If code already exists, return it — never regenerate
+        if (user.verificationCode) {
+          if (finalMobile !== user.phone) await prisma.user.update({ where: { id: user.id }, data: { phone: finalMobile } });
+          return res.json({ userId: user.id, email: user.email, mobileNumber: finalMobile, verificationCode: user.verificationCode, status: user.verificationStatus, verifiedAt: user.verifiedAt, requestedAt: user.verificationRequestedAt, message: 'Existing verification code returned.' });
+        }
+        let code = genVerificationCode();
+        let existing = await prisma.user.findUnique({ where: { verificationCode: code } });
+        while (existing) { code = genVerificationCode(); existing = await prisma.user.findUnique({ where: { verificationCode: code } }); }
+        const updated = await prisma.user.update({
+          where: { id: user.id },
+          data: { phone: finalMobile, verificationCode: code, verificationStatus: 'PENDING', verificationRequestedAt: new Date() },
+          select: { id: true, email: true, phone: true, verificationCode: true, verificationStatus: true, verifiedAt: true, verificationRequestedAt: true },
+        });
+        return res.json({ userId: updated.id, email: updated.email, mobileNumber: updated.phone, verificationCode: updated.verificationCode, status: updated.verificationStatus, verifiedAt: updated.verifiedAt, requestedAt: updated.verificationRequestedAt, message: 'Verification code generated.' });
+      } catch (e) { console.error('Verification code generation error:', e?.message || e); return res.status(500).json({ error: 'Failed to generate verification code' }); }
+    }
+
+    if (m === 'POST' && p === '/api/verification/verify') {
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const { userId: targetUserId, action } = body;
+        if (!targetUserId || !action) return res.status(400).json({ error: 'userId and action are required' });
+        const target = await prisma.user.findUnique({ where: { id: targetUserId } });
+        if (!target) return res.status(404).json({ error: 'User not found' });
+        if (action === 'APPROVE') {
+          await prisma.user.update({ where: { id: targetUserId }, data: { verificationStatus: 'APPROVED', verifiedAt: new Date() } });
+          return res.json({ success: true, status: 'APPROVED' });
+        }
+        if (action === 'REJECT') {
+          await prisma.user.update({ where: { id: targetUserId }, data: { verificationStatus: 'REJECTED' } });
+          return res.json({ success: true, status: 'REJECTED' });
+        }
+        return res.status(400).json({ error: 'Invalid action. Use APPROVE or REJECT.' });
+      } catch { return res.status(500).json({ error: 'Verification update failed' }); }
     }
 
     // ============ EWALLETS ============
@@ -344,8 +403,24 @@ app.use('/api', async (req, res) => {
     }
 
     if (m === 'GET' && p === '/api/admin/verifications') {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const v = await prisma.verificationRequest.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(v); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const users = await prisma.user.findMany({
+          orderBy: { verificationRequestedAt: 'desc' },
+          where: { OR: [{ verificationCode: { not: null } }, { verificationStatus: { not: 'NONE' } }] },
+          select: { id: true, fullName: true, email: true, phone: true, verificationCode: true, verificationStatus: true, verifiedAt: true, verificationRequestedAt: true },
+        });
+        return res.json(users.map(x => ({ id: x.id, userId: x.id, user: { fullName: x.fullName, email: x.email }, fullName: x.fullName, email: x.email, mobileNumber: x.phone, verificationCode: x.verificationCode, status: x.verificationStatus || 'NONE', createdAt: x.verificationRequestedAt, verifiedAt: x.verifiedAt })));
+      } catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.startsWith('/api/admin/verifications/') && (p.endsWith('/approve') || p.endsWith('/reject'))) {
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const id = p.split('/')[4];
+        const action = p.endsWith('/approve') ? 'APPROVED' : 'REJECTED';
+        await prisma.user.update({ where: { id }, data: action === 'APPROVED' ? { verificationStatus: 'APPROVED', verifiedAt: new Date() } : { verificationStatus: 'REJECTED' } });
+        return res.json({ success: true });
+      } catch { return res.status(500).json({ error: 'Failed' }); }
     }
 
     if (m === 'GET' && p === '/api/admin/settings') {

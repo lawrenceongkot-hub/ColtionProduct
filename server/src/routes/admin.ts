@@ -322,11 +322,33 @@ adminRouter.get('/transactions', async (_req: AuthRequest, res: Response) => {
 
 adminRouter.get('/verifications', async (_req: AuthRequest, res: Response) => {
   try {
-    const verifications = await prisma.verificationRequest.findMany({
-      orderBy: { createdAt: 'desc' },
-      include: { user: { select: { fullName: true, email: true } } },
+    // Read verification data from the User table (verificationCode, verificationStatus, verifiedAt)
+    const users = await prisma.user.findMany({
+      orderBy: { verificationRequestedAt: 'desc' },
+      where: { OR: [{ verificationCode: { not: null } }, { verificationStatus: { not: 'NONE' } }] },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        verificationCode: true,
+        verificationStatus: true,
+        verifiedAt: true,
+        verificationRequestedAt: true,
+      },
     });
-    res.json(verifications);
+    res.json(users.map(u => ({
+      id: u.id,
+      userId: u.id,
+      user: { fullName: u.fullName, email: u.email },
+      fullName: u.fullName,
+      email: u.email,
+      mobileNumber: u.phone,
+      verificationCode: u.verificationCode,
+      status: u.verificationStatus || 'NONE',
+      createdAt: u.verificationRequestedAt,
+      verifiedAt: u.verifiedAt,
+    })));
   } catch {
     res.status(500).json({ error: 'Failed to get verifications' });
   }
@@ -335,11 +357,12 @@ adminRouter.get('/verifications', async (_req: AuthRequest, res: Response) => {
 adminRouter.put('/verifications/:id/:action', async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
-    const status = req.params.action === 'approve' ? 'APPROVED' : 'REJECTED';
-    await prisma.verificationRequest.update({
-      where: { id },
-      data: { status },
-    });
+    const action = req.params.action;
+    if (action === 'approve') {
+      await prisma.user.update({ where: { id }, data: { verificationStatus: 'APPROVED', verifiedAt: new Date() } });
+    } else if (action === 'reject') {
+      await prisma.user.update({ where: { id }, data: { verificationStatus: 'REJECTED' } });
+    }
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: 'Failed to update verification' });

@@ -19,6 +19,12 @@ export const AdminVerification: React.FC = React.memo(() => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Auto-refresh every 30 seconds for real-time updates
+  useEffect(() => {
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
   const handleAction = async (id: string, action: 'approve' | 'reject') => {
     try {
       if (action === 'approve') await adminApi.approveVerification(id);
@@ -42,6 +48,7 @@ export const AdminVerification: React.FC = React.memo(() => {
     th: { textAlign: 'left' as const, padding: '10px 12px', fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.4)', fontFamily: "'Inter', sans-serif", borderBottom: '1px solid rgba(255,255,255,0.06)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' },
     td: { padding: '10px 12px', fontSize: '13px', color: '#D1D5DB', fontFamily: "'Inter', sans-serif", borderBottom: '1px solid rgba(255,255,255,0.04)' },
     badge: (color: string) => ({ display: 'inline-block', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, fontFamily: "'Inter', sans-serif", background: `${color}15`, color, border: `1px solid ${color}30` }),
+    code: { fontFamily: "'JetBrains Mono', 'Courier New', monospace", letterSpacing: '0.08em', fontSize: '13px', fontWeight: 700, color: '#60A5FA' },
     actionBtn: (color: string) => ({ padding: '6px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 600, fontFamily: "'Inter', sans-serif", background: `${color}15`, color } as React.CSSProperties),
   };
 
@@ -54,6 +61,7 @@ export const AdminVerification: React.FC = React.memo(() => {
           <option value="PENDING">Pending</option>
           <option value="APPROVED">Approved</option>
           <option value="REJECTED">Rejected</option>
+          <option value="NONE">Not Verified</option>
         </select>
       </div>
 
@@ -79,7 +87,8 @@ export const AdminVerification: React.FC = React.memo(() => {
                 <th style={styles.th}>User</th>
                 <th style={styles.th}>Email</th>
                 <th style={styles.th}>Mobile</th>
-                <th style={styles.th}>Submitted</th>
+                <th style={styles.th}>Verification Code</th>
+                <th style={styles.th}>Requested</th>
                 <th style={styles.th}>Status</th>
                 <th style={styles.th}>Actions</th>
               </tr>
@@ -87,12 +96,19 @@ export const AdminVerification: React.FC = React.memo(() => {
             <tbody>
               {filtered.map(req => (
                 <tr key={req.id}>
-                  <td style={styles.td}>{req.user?.fullName || 'N/A'}</td>
+                  <td style={styles.td}>{req.fullName || req.user?.fullName || 'N/A'}</td>
                   <td style={styles.td}>{req.email}</td>
-                  <td style={styles.td}>{req.mobileNumber}</td>
-                  <td style={styles.td}>{new Date(req.createdAt).toLocaleDateString()}</td>
+                  <td style={styles.td}>{req.mobileNumber || 'N/A'}</td>
                   <td style={styles.td}>
-                    <span style={styles.badge(req.status === 'APPROVED' ? '#10B981' : req.status === 'PENDING' ? '#F59E0B' : '#EF4444')}>
+                    {req.verificationCode ? (
+                      <span style={styles.code}>{req.verificationCode}</span>
+                    ) : (
+                      <span style={{ color: 'rgba(255,255,255,0.3)' }}>—</span>
+                    )}
+                  </td>
+                  <td style={styles.td}>{req.createdAt ? new Date(req.createdAt).toLocaleDateString() : '—'}</td>
+                  <td style={styles.td}>
+                    <span style={styles.badge(req.status === 'APPROVED' ? '#10B981' : req.status === 'PENDING' ? '#F59E0B' : req.status === 'REJECTED' ? '#EF4444' : '#6B7280')}>
                       {req.status}
                     </span>
                   </td>
@@ -107,7 +123,7 @@ export const AdminVerification: React.FC = React.memo(() => {
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'rgba(255,255,255,0.3)' }}>No verification requests</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'rgba(255,255,255,0.3)' }}>No verification requests</td></tr>
               )}
             </tbody>
           </table>

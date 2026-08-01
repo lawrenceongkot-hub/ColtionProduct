@@ -2,38 +2,92 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { colors, typography, borderRadius } from '../theme';
 import { useAuth } from '../context/AuthContext';
-import { verificationService } from '../services/verificationService';
+import { verificationService, type VerificationStatus } from '../services/verificationService';
+import { apiService } from '../services/api';
 import { Button } from '../components/Button';
-import type { VerificationRequest } from '../types';
+import { Input } from '../components/Input';
 
 interface Props {
   onBack: () => void;
 }
 
+const TELEGRAM_SUPPORT_URL = 'https://t.me/ColtionSupport';
+
 export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => {
   const { user } = useAuth();
-  const [request, setRequest] = useState<VerificationRequest | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [status, setStatus] = useState<VerificationStatus | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [mobileInput, setMobileInput] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [hasCreated, setHasCreated] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  // Reload request from service
-  const loadRequest = useCallback(async () => {
-    if (!user) return null;
-    const existing = await verificationService.getRequest(user.id);
-    setRequest(existing);
-    return existing;
+  const loadStatus = useCallback(async () => {
+    if (!user) {
+      setIsLoading(false);
+      return;
+    }
+    try {
+      const s = await verificationService.getStatus(user.id);
+      setStatus(s);
+      if (s) setMobileInput(s.mobileNumber || '');
+    } catch {
+      // Keep existing state
+    }
+    setIsLoading(false);
   }, [user]);
 
   useEffect(() => {
-    loadRequest();
-  }, [loadRequest]);
+    loadStatus();
+  }, [loadStatus]);
+
+  // Auto-refresh for real-time updates
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(loadStatus, 30000);
+    return () => clearInterval(interval);
+  }, [loadStatus, user]);
 
   if (!user) return null;
 
-  const isVerified = request?.status === 'APPROVED';
-  const isPending = request?.status === 'PENDING';
-  const isRejected = request?.status === 'REJECTED';
+  const isVerified = status?.status === 'APPROVED';
+  const isPending = status?.status === 'PENDING';
+  const isRejected = status?.status === 'REJECTED';
+  const isGoogleUser = !user.phone;
+  const hasCode = !!status?.verificationCode;
+
+  const isMobileValid = /^09\d{9}$/.test(mobileInput);
+  const canGenerate = !!user.email && isMobileValid;
+
+  const handleMobileChange = (v: string) => {
+    setMobileInput(v.replace(/[^0-9]/g, '').slice(0, 11));
+    setError(null);
+  };
+
+  const handleGenerateCode = useCallback(async () => {
+    if (!user || !canGenerate) return;
+    setIsGenerating(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const result = await verificationService.generateCode(mobileInput);
+      if (!result) {
+        setError('Unable to generate verification code. Please try again.');
+        setIsGenerating(false);
+        return;
+      }
+      setStatus(result);
+      setSuccess('Verification code generated successfully.');
+      // Also save phone to the user profile via the users endpoint
+      try {
+        await apiService.put('/users/profile', { phone: mobileInput });
+      } catch {}
+      setIsGenerating(false);
+    } catch {
+      setError('Failed to generate verification code. Please try again.');
+      setIsGenerating(false);
+    }
+  }, [user, canGenerate, mobileInput]);
 
   const maskMobile = (mobile: string) => {
     if (mobile.length < 4) return mobile;
@@ -43,90 +97,13 @@ export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => 
     return `${first}${masked}${last}`;
   };
 
-  const handleVerifyNow = useCallback(async () => {
-    if (!user) return;
-
-    // Check if already has pending request
-    const hasPending = await verificationService.hasPendingRequest(user.id);
-    if (hasPending) {
-      loadRequest();
-      return;
-    }
-
-    // Check if already verified
-    const verified = await verificationService.isVerified(user.id);
-    if (verified) {
-      loadRequest();
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const result = await verificationService.createRequest(user.id, user.email, user.phone);
-    if (!result) {
-      setError('Unable to create verification request. Please try again later.');
-      setIsLoading(false);
-      return;
-    }
-
-    setRequest(result);
-    setHasCreated(true);
-    setIsLoading(false);
-  }, [user, loadRequest]);
-
-  // Show the verification code created view
-  if (hasCreated && request) {
+  if (isLoading) {
     return (
       <div style={{ maxWidth: 'clamp(320px, 90vw, 600px)', margin: '0 auto', padding: 'clamp(16px, 3vw, 32px)', paddingBottom: 'clamp(40px, 5vh, 60px)' }}>
-        <BackButton onClick={() => { setHasCreated(false); onBack(); }} />
-        <motion.div
-          style={{ width: '100%', background: colors.gradientGlass, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.xl, padding: 'clamp(24px, 4vw, 32px)', display: 'flex', flexDirection: 'column', gap: 'clamp(20px, 3vh, 28px)' }}
-          initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}
-        >
-          {/* Success Header */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', textAlign: 'center' }}>
-            <div style={{ width: 'clamp(56px, 8vw, 72px)', height: 'clamp(56px, 8vw, 72px)', borderRadius: '50%', background: 'rgba(234,179,8,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={colors.warning} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
-              </svg>
-            </div>
-            <h2 style={{ fontSize: typography.xl, fontWeight: typography.bold, color: colors.textPrimary, fontFamily: typography.fontFamily }}>
-              Verification Request Created
-            </h2>
-            <p style={{ fontSize: typography.sm, color: colors.textTertiary, fontFamily: typography.fontFamily, maxWidth: 'clamp(260px, 70vw, 400px)' }}>
-              Please send this verification code to the official Telegram Admin account for approval.
-            </p>
-          </div>
-
-          {/* Verification Code */}
-          <div style={{ padding: 'clamp(16px, 2.5vw, 24px)', background: colors.bgGlassLight, border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.lg, textAlign: 'center' }}>
-            <p style={{ fontSize: typography.sm, color: colors.textTertiary, fontFamily: typography.fontFamily, marginBottom: '8px' }}>
-              Your Verification Code
-            </p>
-            <p style={{ fontSize: typography.xxl, fontWeight: typography.bold, color: colors.primary, fontFamily: typography.fontFamilyMono, letterSpacing: '0.15em', wordBreak: 'break-all' }}>
-              {request.verificationCode}
-            </p>
-          </div>
-
-          {/* Status */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: colors.warning }} />
-            <span style={{ fontSize: typography.base, fontWeight: typography.semibold, color: colors.warning, fontFamily: typography.fontFamily }}>
-              Waiting for Approval
-            </span>
-          </div>
-
-          <p style={{ fontSize: typography.sm, color: colors.textTertiary, fontFamily: typography.fontFamily, textAlign: 'center' }}>
-            Expires: {new Date(request.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-          </p>
-
-          <Button variant="secondary" size="md" fullWidth onClick={() => { setHasCreated(false); loadRequest(); }}>
-            Check Status
-          </Button>
+        <BackButton onClick={onBack} />
+        <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} style={{ width: '100%', background: colors.gradientGlass, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.xl, padding: 'clamp(32px, 4vw, 48px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px' }}>
+          <motion.div style={{ width: '40px', height: '40px', borderRadius: '50%', border: `3px solid ${colors.bgGlassLight}`, borderTopColor: colors.primary }} animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }} />
+          <p style={{ fontSize: typography.sm, color: colors.textTertiary, fontFamily: typography.fontFamily }}>Loading verification status...</p>
         </motion.div>
       </div>
     );
@@ -159,21 +136,73 @@ export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => 
 
         {/* Email */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: 'clamp(14px, 2vw, 18px)', background: colors.bgGlassLight, border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.md }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <span style={{ fontSize: typography.sm, color: colors.textTertiary, fontFamily: typography.fontFamily }}>Email</span>
-            <span style={{ fontSize: typography.base, fontWeight: typography.semibold, color: colors.textPrimary, fontFamily: typography.fontFamily }}>{user.email}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: typography.base, fontWeight: typography.semibold, color: colors.textPrimary, fontFamily: typography.fontFamily }}>{user.email}</span>
+              {user.email && <span style={{ color: colors.success, fontSize: '14px' }}>✓</span>}
+            </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <StatusBadge status={isVerified ? 'APPROVED' : isPending ? 'PENDING' : 'NONE'} />
           </div>
         </div>
 
-        {/* Mobile */}
+        {/* Mobile Number */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: 'clamp(14px, 2vw, 18px)', background: colors.bgGlassLight, border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.md }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <span style={{ fontSize: typography.sm, color: colors.textTertiary, fontFamily: typography.fontFamily }}>Mobile Number</span>
-            <span style={{ fontSize: typography.base, fontWeight: typography.semibold, color: colors.textPrimary, fontFamily: typography.fontFamily }}>{maskMobile(user.phone)}</span>
+            {(isGoogleUser ? mobileInput : user.phone) ? (
+              <span style={{ fontSize: typography.base, fontWeight: typography.semibold, color: colors.textPrimary, fontFamily: typography.fontFamily }}>
+                {isGoogleUser ? maskMobile(mobileInput) : maskMobile(user.phone)}
+              </span>
+            ) : (
+              <span style={{ fontSize: typography.sm, color: colors.warning, fontFamily: typography.fontFamily, fontWeight: typography.semibold }}>
+                Not provided
+              </span>
+            )}
           </div>
+
+          {/* Google users need to enter mobile number */}
+          {isGoogleUser && !hasCode && (
+            <div style={{ marginTop: '4px' }}>
+              <Input
+                label="Mobile Number"
+                type="text"
+                placeholder="09171234567"
+                value={mobileInput}
+                onChange={handleMobileChange}
+                required
+                maxLength={11}
+              />
+              {mobileInput && !isMobileValid && (
+                <p style={{ fontSize: typography.xs, color: colors.error, fontFamily: typography.fontFamily, marginTop: '4px' }}>
+                  Please enter a valid 11-digit mobile number (e.g., 09171234567).
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Manual registrations can also edit if needed */}
+          {!isGoogleUser && !hasCode && (
+            <div style={{ marginTop: '4px' }}>
+              <Input
+                label="Update Mobile Number (Optional)"
+                type="text"
+                placeholder="09171234567"
+                value={mobileInput}
+                onChange={handleMobileChange}
+                required
+                maxLength={11}
+              />
+              {mobileInput && !isMobileValid && (
+                <p style={{ fontSize: typography.xs, color: colors.error, fontFamily: typography.fontFamily, marginTop: '4px' }}>
+                  Please enter a valid 11-digit mobile number (e.g., 09171234567).
+                </p>
+              )}
+            </div>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <StatusBadge status={isVerified ? 'APPROVED' : isPending ? 'PENDING' : 'NONE'} />
           </div>
@@ -182,7 +211,7 @@ export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => 
         {/* Rejected message */}
         {isRejected && (
           <div style={{ padding: 'clamp(10px, 1.5vh, 14px) clamp(14px, 2vw, 18px)', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: borderRadius.md, fontSize: typography.sm, color: colors.error, fontFamily: typography.fontFamily, textAlign: 'center' }}>
-            Your previous verification request was rejected. You can submit a new request.
+            Your previous verification request was rejected. Please contact support.
           </div>
         )}
 
@@ -195,17 +224,26 @@ export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => 
           )}
         </AnimatePresence>
 
+        {/* Success */}
+        <AnimatePresence mode="wait">
+          {success && (
+            <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} style={{ fontSize: typography.sm, color: colors.success, fontFamily: typography.fontFamily, textAlign: 'center', fontWeight: typography.semibold }}>
+              {success}
+            </motion.p>
+          )}
+        </AnimatePresence>
+
         {/* Pending info */}
-        {isPending && (
-          <div style={{ padding: 'clamp(12px, 1.8vh, 16px)', background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)', borderRadius: borderRadius.md, textAlign: 'center' }}>
+        {isPending && status?.verificationCode && (
+          <div style={{ padding: 'clamp(14px, 2vw, 18px)', background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)', borderRadius: borderRadius.lg, textAlign: 'center' }}>
             <p style={{ fontSize: typography.sm, color: colors.warning, fontFamily: typography.fontFamily, fontWeight: typography.semibold }}>
-              You already have a pending verification request.
+              Your Verification Code
             </p>
-            <p style={{ fontSize: typography.xs, color: colors.textTertiary, fontFamily: typography.fontFamily, marginTop: '4px' }}>
-              Code: {request!.verificationCode}
+            <p style={{ fontSize: typography.xxl, fontWeight: typography.bold, color: colors.primary, fontFamily: typography.fontFamilyMono, letterSpacing: '0.15em', wordBreak: 'break-all', marginTop: '8px' }}>
+              {status.verificationCode}
             </p>
-            <p style={{ fontSize: typography.xs, color: colors.textTertiary, fontFamily: typography.fontFamily }}>
-              Expires: {new Date(request!.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            <p style={{ fontSize: typography.xs, color: colors.textTertiary, fontFamily: typography.fontFamily, marginTop: '8px' }}>
+              This code is permanent and never changes. Please contact Telegram support for approval.
             </p>
           </div>
         )}
@@ -220,17 +258,47 @@ export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => 
           </div>
         )}
 
-        {/* Verify Button */}
-        {!isVerified && (
-          <Button
-            variant="primary"
-            size="lg"
-            fullWidth
-            loading={isLoading}
-            onClick={handleVerifyNow}
-          >
-            {isPending ? 'View Existing Request' : 'Verify Now'}
+        {/* Generate Code Button */}
+        {!isVerified && !hasCode && (
+          <>
+            {!canGenerate && (
+              <p style={{ fontSize: typography.xs, color: colors.textTertiary, fontFamily: typography.fontFamily, textAlign: 'center', marginBottom: '-12px' }}>
+                Complete your Email and Mobile Number before generating your verification code.
+              </p>
+            )}
+            <Button
+              variant="primary"
+              size="lg"
+              fullWidth
+              loading={isGenerating}
+              disabled={!canGenerate}
+              onClick={handleGenerateCode}
+            >
+              Generate Verification Code
+            </Button>
+          </>
+        )}
+
+        {/* Code exists but disabled button */}
+        {!isVerified && hasCode && (
+          <Button variant="secondary" size="lg" fullWidth disabled>
+            ✓ Verification Code Generated
           </Button>
+        )}
+
+        {/* Telegram Support */}
+        {!isVerified && (
+          <motion.a
+            href={TELEGRAM_SUPPORT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: 'clamp(12px, 1.8vh, 16px)', background: colors.bgGlassLight, border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.md, cursor: 'pointer', fontSize: typography.base, fontWeight: typography.semibold, color: colors.primary, fontFamily: typography.fontFamily, textDecoration: 'none' }}
+            whileHover={{ background: colors.bgGlass }}
+            whileTap={{ scale: 0.98 }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="#2AABEE"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+            Contact Telegram Support
+          </motion.a>
         )}
       </motion.div>
     </div>
