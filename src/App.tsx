@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AuthProvider } from './context/AuthContext';
 import { OnboardingFlow } from './navigation/OnboardingFlow';
 import { AdminPanel } from './admin/AdminPanel';
+import { TelegramSupportWidget } from './components/TelegramSupportWidget';
 
 const App: React.FC = React.memo(() => {
   const [isAdmin, setIsAdmin] = useState(() => {
@@ -26,6 +27,7 @@ const App: React.FC = React.memo(() => {
   return (
     <AuthProvider>
       <OnboardingFlow />
+      <TelegramSupportWidget />
     </AuthProvider>
   );
 });
