@@ -22,7 +22,7 @@ export interface PlatformSettings {
   ipWhitelist: any[];
   ipBlacklist: any[];
   blockedCountryMessage: string;
-  countryRestrictions: any;
+  countryRestrictions: Record<string, boolean>;
   sessionTimeoutMinutes: number;
   passwordMinLength: number;
   requireUppercase: boolean;
@@ -65,6 +65,30 @@ export const DEFAULT_SETTINGS: PlatformSettings = {
   lockDurationMinutes: 30,
   ipWhitelist: [],
   ipBlacklist: [],
+  ipWhitelistEnabled: false,
+  blockedCountryMessage: 'Service unavailable in your country.',
+  countryRestrictions: {},
+  sessionTimeoutMinutes: 60,
+  passwordMinLength: 8,
+  requireUppercase: true,
+  requireLowercase: true,
+  requireNumber: true,
+  requireSpecialChar: false,
+  twoFactorEnabled: false,
+  emailVerificationRequired: true,
+  mobileVerificationRequired: true,
+  maxUploadSizeMB: 10,
+  allowedImageTypes: 'jpg,png,svg,webp',
+  allowedDocumentTypes: 'pdf,doc,docx',
+  maxVerificationFileSizeMB: 5,
+  emailNotifications: true,
+  smsNotifications: true,
+  inAppNotifications: true,
+  adminNotifications: true,
+  referralNotifications: true,
+  investmentNotifications: true,
+  depositNotifications: true,
+  withdrawalNotifications: true,
 };
 
 export const settingsService = {
@@ -79,6 +103,7 @@ export const settingsService = {
         paymentMethods: typeof s.paymentMethods === 'string' ? JSON.parse(s.paymentMethods || '{}') : (s.paymentMethods || { GCash: true, Maya: true, QRPH: true }),
         ipWhitelist: Array.isArray(s.ipWhitelist) ? s.ipWhitelist : (typeof s.ipWhitelist === 'string' ? JSON.parse(s.ipWhitelist || '[]') : []),
         ipBlacklist: Array.isArray(s.ipBlacklist) ? s.ipBlacklist : (typeof s.ipBlacklist === 'string' ? JSON.parse(s.ipBlacklist || '[]') : []),
+        countryRestrictions: typeof s.countryRestrictions === 'string' ? JSON.parse(s.countryRestrictions || '{}') : (s.countryRestrictions || {}),
       };
     } catch {
       return { ...DEFAULT_SETTINGS };

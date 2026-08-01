@@ -210,9 +210,9 @@ export const AdminSettings: React.FC = React.memo(() => {
           {COUNTRIES.map(c => (
             <div key={c.code} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.02)' }}>
               <span style={{ fontSize: '12px', color: '#D1D5DB', flex: 1 }}>{c.name}</span>
-              <button type="button" onClick={() => updateField('countryRestrictions', { ...settings.countryRestrictions, [c.code]: settings.countryRestrictions[c.code] !== false })}
-                style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, cursor: 'pointer', background: settings.countryRestrictions[c.code] !== false ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: settings.countryRestrictions[c.code] !== false ? '#10B981' : '#EF4444', border: 'none' }}>
-                {settings.countryRestrictions[c.code] !== false ? 'Allowed' : 'Blocked'}
+              <button type="button" onClick={() => updateField('countryRestrictions', { ...(settings.countryRestrictions || {}), [c.code]: (settings.countryRestrictions || {})[c.code] !== false })}
+                style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, cursor: 'pointer', background: (settings.countryRestrictions || {})[c.code] !== false ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: (settings.countryRestrictions || {})[c.code] !== false ? '#10B981' : '#EF4444', border: 'none' }}>
+                {(settings.countryRestrictions || {})[c.code] !== false ? 'Allowed' : 'Blocked'}
               </button>
             </div>
           ))}

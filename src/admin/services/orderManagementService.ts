@@ -3,7 +3,9 @@ import { adminApi } from './adminApi';
 export const orderManagementService = {
   async getOrders(): Promise<any[]> {
     try {
-      return await adminApi.getOrders();
+      const data = await adminApi.getOrders();
+      // ALWAYS return an array - never undefined/null/object
+      return Array.isArray(data) ? data : [];
     } catch {
       return [];
     }
@@ -13,7 +15,7 @@ export const orderManagementService = {
   searchOrders(search: string, orders: any[]): any[] {
     if (!search.trim()) return orders;
     const q = search.toLowerCase();
-    return orders.filter(o =>
+    return (Array.isArray(orders) ? orders : []).filter(o =>
       (o.user?.fullName || '').toLowerCase().includes(q) ||
       (o.user?.email || '').toLowerCase().includes(q) ||
       (o.vipName || '').toLowerCase().includes(q) ||
@@ -31,7 +33,8 @@ export const orderManagementService = {
 
   async getProfitHistory(orderId: string): Promise<any[]> {
     try {
-      return await adminApi.getTransactions();
+      const data = await adminApi.getTransactions();
+      return Array.isArray(data) ? data : [];
     } catch {
       return [];
     }
@@ -55,7 +58,7 @@ export const orderManagementService = {
 
   exportToCSV(orders: any[]): string {
     const header = 'User,Email,VIP,Amount,Status,Purchase Date';
-    const rows = orders.map(o => `${o.user?.fullName || ''},${o.user?.email || ''},${o.vipName || ''},${o.buyAmount || 0},${o.status || ''},${o.purchaseDate || ''}`);
+    const rows = (Array.isArray(orders) ? orders : []).map(o => `${o.user?.fullName || ''},${o.user?.email || ''},${o.vipName || ''},${o.buyAmount || 0},${o.status || ''},${o.purchaseDate || ''}`);
     return [header, ...rows].join('\n');
   },
 };

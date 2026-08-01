@@ -3,7 +3,9 @@ import { adminApi } from './adminApi';
 export const userManagementService = {
   async getUsers(): Promise<any[]> {
     try {
-      return await adminApi.getUsers();
+      const data = await adminApi.getUsers();
+      // ALWAYS return an array - never undefined/null/object
+      return Array.isArray(data) ? data : [];
     } catch {
       return [];
     }
@@ -22,7 +24,7 @@ export const userManagementService = {
   searchUsers(search: string, users: any[]): any[] {
     if (!search.trim()) return users;
     const q = search.toLowerCase();
-    return users.filter(u =>
+    return (Array.isArray(users) ? users : []).filter(u =>
       (u.fullName || '').toLowerCase().includes(q) ||
       (u.email || '').toLowerCase().includes(q) ||
       (u.phone || '').toLowerCase().includes(q) ||
@@ -32,7 +34,8 @@ export const userManagementService = {
 
   async getAuditLog(userId: string): Promise<any[]> {
     try {
-      return await adminApi.getAuditLog(userId);
+      const data = await adminApi.getAuditLog(userId);
+      return Array.isArray(data) ? data : [];
     } catch {
       return [];
     }
@@ -78,7 +81,7 @@ export const userManagementService = {
   },
   exportToCSV(users: any[]): string {
     const header = 'Name,Email,Phone,Display ID,Created';
-    const rows = users.map(u => `${u.fullName || ''},${u.email || ''},${u.phone || ''},${u.displayId || ''},${u.createdAt || ''}`);
+    const rows = (Array.isArray(users) ? users : []).map(u => `${u.fullName || ''},${u.email || ''},${u.phone || ''},${u.displayId || ''},${u.createdAt || ''}`);
     return [header, ...rows].join('\n');
   },
 };

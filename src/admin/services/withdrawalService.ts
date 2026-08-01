@@ -3,7 +3,9 @@ import { adminApi } from './adminApi';
 export const withdrawalService = {
   async getWithdrawals(): Promise<any[]> {
     try {
-      return await adminApi.getWithdrawals();
+      const data = await adminApi.getWithdrawals();
+      // ALWAYS return an array - never undefined/null/object
+      return Array.isArray(data) ? data : [];
     } catch {
       return [];
     }
@@ -31,7 +33,7 @@ export const withdrawalService = {
   searchWithdrawals(search: string, withdrawals: any[]): any[] {
     if (!search.trim()) return withdrawals;
     const q = search.toLowerCase();
-    return withdrawals.filter(w =>
+    return (Array.isArray(withdrawals) ? withdrawals : []).filter(w =>
       (w.reference || '').toLowerCase().includes(q) ||
       (w.user?.fullName || '').toLowerCase().includes(q) ||
       (w.user?.email || '').toLowerCase().includes(q) ||
@@ -58,7 +60,7 @@ export const withdrawalService = {
 
   exportToCSV(withdrawals: any[]): string {
     const header = 'Reference,User,Email,Amount,Method,Wallet,Status,Created';
-    const rows = withdrawals.map(w => `${w.reference || ''},${w.user?.fullName || ''},${w.user?.email || ''},${w.amount || 0},${w.method || ''},${w.walletNumber || ''},${w.status || ''},${w.createdAt || ''}`);
+    const rows = (Array.isArray(withdrawals) ? withdrawals : []).map(w => `${w.reference || ''},${w.user?.fullName || ''},${w.user?.email || ''},${w.amount || 0},${w.method || ''},${w.walletNumber || ''},${w.status || ''},${w.createdAt || ''}`);
     return [header, ...rows].join('\n');
   },
 };
