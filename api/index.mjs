@@ -353,8 +353,36 @@ app.use('/api', async (req, res) => {
     }
 
     if (m === 'GET' && p === '/api/admin/dashboard') {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const tu = await prisma.user.count(); const td = await prisma.deposit.aggregate({ _sum: { amount: true } }); const tw = await prisma.withdrawal.aggregate({ _sum: { amount: true } }); const pd = await prisma.deposit.count({ where: { status: 'PENDING' } }); const pw = await prisma.withdrawal.count({ where: { status: 'PENDING' } }); const ao = await prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }); const ru = await prisma.user.findMany({ orderBy: { createdAt: 'desc' }, take: 10, select: { id: true, fullName: true, email: true, createdAt: true } }); return res.json({ totalUsers: tu, totalDeposits: td._sum.amount || 0, totalWithdrawals: tw._sum.amount || 0, pendingDeposits: pd, pendingWithdrawals: pw, activeOrders: ao, recentUsers: ru }); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const [tu, td, tw, ao, tx, as, nut, vu, pv, sb, wb, rc, wb2, av, ia, dp, ct, rp, pd, pw, pk, ft, st] = await Promise.all([
+          prisma.user.count(),
+          prisma.deposit.aggregate({ _sum: { amount: true }, where: { status: 'SUCCESS' } }),
+          prisma.withdrawal.aggregate({ _sum: { amount: true }, where: { status: 'SUCCESS' } }),
+          prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }),
+          prisma.transaction.count(),
+          prisma.userSession.count({ where: { expiresAt: { gte: new Date() } } }),
+          prisma.user.count({ where: { createdAt: { gte: today } } }),
+          prisma.user.count({ where: { verificationStatus: 'APPROVED' } }),
+          prisma.user.count({ where: { verificationStatus: 'PENDING' } }),
+          prisma.user.count({ where: { verificationStatus: { in: ['SUSPENDED', 'BANNED'] } } }),
+          prisma.welcomeBonusClaim.aggregate({ _sum: { amount: true } }),
+          prisma.agentCommission.aggregate({ _sum: { commissionAmount: true } }),
+          prisma.wallet.aggregate({ _sum: { main: true } }),
+          prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }),
+          prisma.investmentOrder.aggregate({ _sum: { buyAmount: true }, where: { status: 'ACTIVE' } }),
+          prisma.transaction.aggregate({ _sum: { amount: true }, where: { type: 'DAILY_PROFIT', createdAt: { gte: today } } }),
+          prisma.investmentOrder.count({ where: { status: 'ACTIVE', completedDays: { gte: 29 } } }),
+          prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }),
+          prisma.deposit.count({ where: { status: 'PENDING' } }),
+          prisma.withdrawal.count({ where: { status: 'PENDING' } }),
+          prisma.verificationRequest.count({ where: { status: 'PENDING' } }),
+          prisma.transaction.count({ where: { status: 'FAILED' } }),
+          prisma.notification.count({ where: { read: false } }),
+        ]);
+        return res.json({ totalUsers: tu, onlineUsers: as, newUsersToday: nut, verifiedUsers: vu, pendingVerification: pv, suspendedBanned: sb, totalDeposits: td._sum.amount || 0, totalWithdrawals: tw._sum.amount || 0, netRevenue: (td._sum.amount || 0) - (tw._sum.amount || 0), totalWelcomeBonuses: wb._sum.amount || 0, totalReferralCommissions: rc._sum.commissionAmount || 0, totalWalletBalance: wb2._sum.main || 0, activeVIPMembers: av, activeInvestmentOrders: ao, totalInvestedAmount: ia._sum.buyAmount || 0, dailyProfitDistributedToday: dp._sum.amount || 0, investmentsCompletingToday: ct, runningInvestmentPlans: rp, pendingDeposits: pd, pendingWithdrawals: pw, pendingKYC: pk, failedTransactions: ft, pendingSupportRequests: st, lastUpdated: new Date().toISOString() });
+      } catch { return res.status(500).json({ error: 'Failed' }); }
     }
 
     if (m === 'GET' && p === '/api/admin/users') {

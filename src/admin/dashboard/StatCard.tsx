@@ -101,7 +101,7 @@ export const StatCard: React.FC<StatCardProps> = React.memo(({
 
       {/* Value */}
       <div style={{ fontSize: '26px', fontWeight: 700, color: '#FFFFFF', fontFamily: "'Inter', sans-serif", marginBottom: '4px' }}>
-        {prefix}{value.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}{suffix}
+        {prefix}{(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}{suffix}
       </div>
 
       {/* Label */}

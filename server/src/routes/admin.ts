@@ -41,22 +41,59 @@ adminRouter.use(authenticateToken, requireAdmin);
 
 adminRouter.get('/dashboard', async (_req: AuthRequest, res: Response) => {
   try {
-    const [users, deposits, withdrawals, orders, transactions, activeSessions] = await Promise.all([
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const [users, deposits, withdrawals, orders, transactions, activeSessions, newUsersToday, verifiedUsers, pendingVerification, suspendedBanned, welcomeBonuses, referralCommissions, walletBalance, activeVIP, investedAmount, dailyProfit, completingToday, runningPlans, pendingDeposits, pendingWithdrawals, pendingKYC, failedTx, supportTickets] = await Promise.all([
       prisma.user.count(),
       prisma.deposit.aggregate({ _sum: { amount: true }, where: { status: 'SUCCESS' } }),
       prisma.withdrawal.aggregate({ _sum: { amount: true }, where: { status: 'SUCCESS' } }),
       prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }),
       prisma.transaction.count(),
       prisma.userSession.count({ where: { expiresAt: { gte: new Date() } } }),
+      prisma.user.count({ where: { createdAt: { gte: today } } }),
+      prisma.user.count({ where: { verificationStatus: 'APPROVED' } }),
+      prisma.user.count({ where: { verificationStatus: 'PENDING' } }),
+      prisma.user.count({ where: { verificationStatus: { in: ['SUSPENDED', 'BANNED'] } } }),
+      prisma.welcomeBonusClaim.aggregate({ _sum: { amount: true } }),
+      prisma.agentCommission.aggregate({ _sum: { commissionAmount: true } }),
+      prisma.wallet.aggregate({ _sum: { main: true } }),
+      prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }),
+      prisma.investmentOrder.aggregate({ _sum: { buyAmount: true }, where: { status: 'ACTIVE' } }),
+      prisma.transaction.aggregate({ _sum: { amount: true }, where: { type: 'DAILY_PROFIT', createdAt: { gte: today } } }),
+      prisma.investmentOrder.count({ where: { status: 'ACTIVE', completedDays: { gte: 29 } } }),
+      prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }),
+      prisma.deposit.count({ where: { status: 'PENDING' } }),
+      prisma.withdrawal.count({ where: { status: 'PENDING' } }),
+      prisma.verificationRequest.count({ where: { status: 'PENDING' } }),
+      prisma.transaction.count({ where: { status: 'FAILED' } }),
+      prisma.notification.count({ where: { read: false } }),
     ]);
 
     res.json({
       totalUsers: users,
+      onlineUsers: activeSessions,
+      newUsersToday,
+      verifiedUsers,
+      pendingVerification,
+      suspendedBanned,
       totalDeposits: deposits._sum.amount || 0,
       totalWithdrawals: withdrawals._sum.amount || 0,
-      activeOrders: orders,
-      totalTransactions: transactions,
-      onlineUsers: activeSessions,
+      netRevenue: (deposits._sum.amount || 0) - (withdrawals._sum.amount || 0),
+      totalWelcomeBonuses: welcomeBonuses._sum.amount || 0,
+      totalReferralCommissions: referralCommissions._sum.commissionAmount || 0,
+      totalWalletBalance: walletBalance._sum.main || 0,
+      activeVIPMembers: activeVIP,
+      activeInvestmentOrders: orders,
+      totalInvestedAmount: investedAmount._sum.buyAmount || 0,
+      dailyProfitDistributedToday: dailyProfit._sum.amount || 0,
+      investmentsCompletingToday: completingToday,
+      runningInvestmentPlans: runningPlans,
+      pendingDeposits,
+      pendingWithdrawals,
+      pendingKYC,
+      failedTransactions: failedTx,
+      pendingSupportRequests: supportTickets,
+      lastUpdated: new Date().toISOString(),
     });
   } catch {
     res.status(500).json({ error: 'Failed to get dashboard' });
