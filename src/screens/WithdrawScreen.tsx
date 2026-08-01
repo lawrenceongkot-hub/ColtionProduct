@@ -4,7 +4,6 @@ import { colors, typography, borderRadius, shadows } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { walletService } from '../services/walletService';
 import { ewalletService } from '../services/ewalletService';
-import { transactionService } from '../services/transactionService';
 import { verificationService } from '../services/verificationService';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
@@ -30,6 +29,8 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ ref: string } | null>(null);
+  const [isVerified, setIsVerified] = useState(false);
+  const [balances, setBalances] = useState({ main: 0, semWallet: 0, ongoing: 0 });
 
   // Wallet list state
   const [wallets, setWallets] = useState<EWallet[]>([]);
@@ -59,6 +60,22 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
     } catch {}
   }, []);
 
+  // Load wallets
+  const loadWallets = useCallback(async () => {
+    const all = await ewalletService.getAllWallets();
+    setWallets(all);
+    return all;
+  }, []);
+
+  // Initialize wallets, verification status, and balances on mount
+  useEffect(() => {
+    loadWallets();
+    if (user) {
+      verificationService.isVerified(user.id).then(v => setIsVerified(v));
+      walletService.getBalances().then(b => setBalances(b));
+    }
+  }, [loadWallets, user]);
+
   if (!user) return null;
 
   // Show full-screen withdrawal maintenance page
@@ -66,23 +83,9 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
     return <WithdrawalMaintenancePage onBack={onBack} />;
   }
 
-  // Load wallets
-  const loadWallets = useCallback(() => {
-    const all = ewalletService.getAllWallets(user.id);
-    setWallets(all);
-    return all;
-  }, [user]);
-
-  // Initialize wallets on mount
-  useEffect(() => {
-    loadWallets();
-  }, [loadWallets]);
-
   const currentWallet = wallets[selectedWalletIdx] || null;
   const hasWallets = wallets.length > 0;
   const isFirstWallet = !hasWallets;
-  const isVerified = verificationService.isVerified(user.id);
-  const balances = walletService.getBalancesSync(user.id);
   const numericAmount = parseFloat(amount) || 0;
 
   // ESC key handler
@@ -129,9 +132,10 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
     }
   }, [hasWallets]);
 
-  const handlePasswordVerify = useCallback(() => {
+  const handlePasswordVerify = useCallback(async () => {
     if (!hasWallets) return;
-    if (!ewalletService.verifyPassword(user.id, verifyPassword)) {
+    const valid = await ewalletService.verifyPassword(verifyPassword);
+    if (!valid) {
       setPasswordError('Incorrect Withdrawal Password');
       return;
     }
@@ -139,7 +143,7 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
     setVerifyPassword('');
     setPasswordError(null);
     setShowAddForm(true);
-  }, [hasWallets, user, verifyPassword]);
+  }, [hasWallets, verifyPassword]);
 
   const handlePasswordCancel = useCallback(() => {
     setShowPasswordModal(false);
@@ -160,10 +164,10 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
     await new Promise(resolve => setTimeout(resolve, 800));
 
     // Save wallet
-    ewalletService.saveWallet(user.id, addProvider, addWalletNumber, addPassword);
+    await ewalletService.saveWallet(user.id, addProvider, addWalletNumber, addPassword);
 
     // Immediately reload wallets and select the new one
-    const all = loadWallets();
+    const all = await loadWallets();
     const newIdx = all.length - 1;
     setSelectedWalletIdx(newIdx);
 
@@ -185,14 +189,19 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
     if (numericAmount < 100) { setError('Minimum withdrawal is ₱100.'); return; }
     if (numericAmount > balances.main) { setError('Insufficient balance.'); return; }
     if (!withdrawalPassword) { setError('Please enter your withdrawal password.'); return; }
-    if (!ewalletService.verifyPassword(user.id, withdrawalPassword)) { setError('Incorrect withdrawal password.'); return; }
+    const valid = await ewalletService.verifyPassword(withdrawalPassword);
+    if (!valid) { setError('Incorrect withdrawal password.'); return; }
     setError(null);
     setIsProcessing(true);
     await new Promise(resolve => setTimeout(resolve, 1200));
-    const tx = transactionService.createWithdrawal(user.id, currentWallet.provider, currentWallet.walletNumber, numericAmount);
-    setResult({ ref: tx.reference });
+    try {
+      const tx = await walletService.withdraw(numericAmount, currentWallet.provider, currentWallet.walletNumber);
+      setResult({ ref: tx.reference || tx.id || 'WTH-' + Date.now() });
+    } catch {
+      setError('Failed to submit withdrawal. Please try again.');
+    }
     setIsProcessing(false);
-  }, [numericAmount, balances.main, withdrawalPassword, user.id, currentWallet]);
+  }, [numericAmount, balances.main, withdrawalPassword, currentWallet]);
 
   if (result) {
     return (

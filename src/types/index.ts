@@ -129,7 +129,7 @@ export interface ReferralEntry {
 export interface Transaction {
   id: string;
   userId: string;
-  type: 'deposit' | 'withdrawal' | 'vip_purchase' | 'daily_profit' | 'referral_commission' | 'wallet_transfer' | 'vip_maturity_transfer' | 'welcome_bonus' | 'agent_commission';
+  type: 'deposit' | 'withdrawal' | 'vip_purchase' | 'daily_profit' | 'referral_commission' | 'wallet_transfer' | 'vip_maturity_transfer' | 'welcome_bonus' | 'agent_commission' | 'admin_adjustment';
   amount: number;
   method: string;
   walletNumber?: string;

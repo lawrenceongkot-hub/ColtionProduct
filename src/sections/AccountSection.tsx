@@ -13,6 +13,7 @@ import { AgentSection } from './AgentSection';
 import { verificationService } from '../services/verificationService';
 import { orderService } from '../services/orderService';
 import { FORMAT_CURRENCY } from '../constants';
+import { ErrorBoundary } from '../admin/components/ErrorBoundary';
 
 type AccountPage = 'dashboard' | 'transactions' | 'verify' | 'password' | 'deposit' | 'withdraw' | 'agent';
 
@@ -43,7 +44,11 @@ export const AccountSection: React.FC = React.memo(() => {
     .slice(0, 2);
 
   if (page === 'transactions') {
-    return <TransactionHistorySection onBack={() => setPage('dashboard')} />;
+    return (
+      <ErrorBoundary>
+        <TransactionHistorySection onBack={() => setPage('dashboard')} />
+      </ErrorBoundary>
+    );
   }
   if (page === 'verify') {
     return <VerifyAccountSection onBack={() => setPage('dashboard')} />;
@@ -58,7 +63,11 @@ export const AccountSection: React.FC = React.memo(() => {
     return <WithdrawScreen onBack={() => setPage('dashboard')} />;
   }
   if (page === 'agent') {
-    return <AgentSection onBack={() => setPage('dashboard')} />;
+    return (
+      <ErrorBoundary>
+        <AgentSection onBack={() => setPage('dashboard')} />
+      </ErrorBoundary>
+    );
   }
 
   return (
