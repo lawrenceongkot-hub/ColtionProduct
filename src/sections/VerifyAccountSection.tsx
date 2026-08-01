@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { colors, typography, borderRadius } from '../theme';
 import { useAuth } from '../context/AuthContext';
-import { verificationService, type VerificationStatus } from '../services/verificationService';
+import { verificationService, isMobileValid, type VerificationStatus } from '../services/verificationService';
 import { apiService } from '../services/api';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
@@ -56,8 +56,13 @@ export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => 
   const isGoogleUser = !user.phone;
   const hasCode = !!status?.verificationCode;
 
-  const isMobileValid = /^09\d{9}$/.test(mobileInput);
-  const canGenerate = !!user.email && isMobileValid;
+  const mobileIsValid = isMobileValid(mobileInput);
+  const emailExists = !!user.email;
+  const mobileExists = isGoogleUser ? mobileInput.length > 0 : (user.phone || mobileInput).length > 0;
+  // For manual registration, use existing phone unless user provided a new one
+  const effectiveMobile = isGoogleUser ? mobileInput : (mobileInput || user.phone);
+  const mobileIsValidForGen = isMobileValid(effectiveMobile);
+  const canGenerate = emailExists && mobileExists && mobileIsValidForGen;
 
   const handleMobileChange = (v: string) => {
     setMobileInput(v.replace(/[^0-9]/g, '').slice(0, 11));
@@ -70,24 +75,40 @@ export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => 
     setError(null);
     setSuccess(null);
     try {
-      const result = await verificationService.generateCode(mobileInput);
-      if (!result) {
-        setError('Unable to generate verification code. Please try again.');
+      // Save phone FIRST to the user profile so the backend has it
+      if (effectiveMobile) {
+        try {
+          console.log('=== VERIFY STEP 1: Saving mobile number to /users/profile');
+          await apiService.put('/users/profile', { phone: effectiveMobile });
+          console.log('=== VERIFY STEP 2: Mobile number saved successfully');
+        } catch (e: any) {
+          console.error('=== VERIFY STEP 2: Failed to save mobile number', e?.message || e);
+          setError(e?.message || 'Failed to save mobile number. Please try again.');
+          setIsGenerating(false);
+          return;
+        }
+      }
+
+      // Now generate the code — get the EXACT backend error if it fails
+      console.log('=== VERIFY STEP 3: Calling verificationService.generateCode');
+      const result = await verificationService.generateCode(effectiveMobile);
+      if (!result.ok || !result.data) {
+        // Show the exact backend error message
+        setError(result.error || 'Unable to generate verification code.');
+        console.error('=== VERIFY STEP 4: generateCode failed:', result.error);
         setIsGenerating(false);
         return;
       }
-      setStatus(result);
+      console.log('=== VERIFY STEP 4: generateCode succeeded');
+      setStatus(result.data);
       setSuccess('Verification code generated successfully.');
-      // Also save phone to the user profile via the users endpoint
-      try {
-        await apiService.put('/users/profile', { phone: mobileInput });
-      } catch {}
       setIsGenerating(false);
-    } catch {
-      setError('Failed to generate verification code. Please try again.');
+    } catch (e: any) {
+      console.error('=== VERIFY STEP 5: Unexpected error during generation', e?.message || e);
+      setError(e?.message || 'Failed to generate verification code. Please try again.');
       setIsGenerating(false);
     }
-  }, [user, canGenerate, mobileInput]);
+  }, [user, canGenerate, effectiveMobile]);
 
   const maskMobile = (mobile: string) => {
     if (mobile.length < 4) return mobile;
@@ -163,31 +184,18 @@ export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => 
             )}
           </div>
 
-          {/* Google users need to enter mobile number */}
-          {isGoogleUser && !hasCode && (
-            <div style={{ marginTop: '4px' }}>
-              <Input
-                label="Mobile Number"
-                type="text"
-                placeholder="09171234567"
-                value={mobileInput}
-                onChange={handleMobileChange}
-                required
-                maxLength={11}
-              />
-              {mobileInput && !isMobileValid && (
-                <p style={{ fontSize: typography.xs, color: colors.error, fontFamily: typography.fontFamily, marginTop: '4px' }}>
-                  Please enter a valid 11-digit mobile number (e.g., 09171234567).
-                </p>
-              )}
-            </div>
+          {/* Inline validation: Email required */}
+          {!emailExists && (
+            <p style={{ fontSize: typography.xs, color: colors.error, fontFamily: typography.fontFamily, marginTop: '4px' }}>
+              Email is required for verification.
+            </p>
           )}
 
-          {/* Manual registrations can also edit if needed */}
-          {!isGoogleUser && !hasCode && (
+          {/* Mobile Number input — REQUIRED (never optional) */}
+          {!hasCode && (
             <div style={{ marginTop: '4px' }}>
               <Input
-                label="Update Mobile Number (Optional)"
+                label={isGoogleUser ? 'Mobile Number *' : 'Mobile Number *'}
                 type="text"
                 placeholder="09171234567"
                 value={mobileInput}
@@ -195,9 +203,16 @@ export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => 
                 required
                 maxLength={11}
               />
-              {mobileInput && !isMobileValid && (
+              {/* Inline validation: Mobile required */}
+              {!mobileInput && (
                 <p style={{ fontSize: typography.xs, color: colors.error, fontFamily: typography.fontFamily, marginTop: '4px' }}>
-                  Please enter a valid 11-digit mobile number (e.g., 09171234567).
+                  Mobile number is required for verification.
+                </p>
+              )}
+              {/* Inline validation: format */}
+              {mobileInput && !mobileIsValidForGen && (
+                <p style={{ fontSize: typography.xs, color: colors.error, fontFamily: typography.fontFamily, marginTop: '4px' }}>
+                  Please enter a valid 11-digit Philippine mobile number starting with 09 (e.g., 09171234567).
                 </p>
               )}
             </div>

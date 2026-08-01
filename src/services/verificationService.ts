@@ -17,6 +17,18 @@ export interface VerificationStatus {
   requestedAt: string | null;
 }
 
+/** Result wrapper that preserves the exact backend error message */
+export interface VerifyResult<T> {
+  ok: boolean;
+  data?: T;
+  error?: string;
+}
+
+export function isMobileValid(mobile: string): boolean {
+  // Philippines format: starts with 09, exactly 11 digits
+  return /^09\d{9}$/.test(mobile);
+}
+
 export const verificationService = {
   /**
    * Get the user's current verification status and code (if exists).
@@ -24,8 +36,12 @@ export const verificationService = {
    */
   async getStatus(userId: string): Promise<VerificationStatus | null> {
     try {
-      return await apiService.get<VerificationStatus>('/verification');
-    } catch {
+      console.log('=== VERIFY STEP 1: getStatus(apiService.get /verification)');
+      const data = await apiService.get<VerificationStatus>('/verification');
+      console.log('=== VERIFY STEP 2: getStatus success', JSON.stringify(data));
+      return data;
+    } catch (e: any) {
+      console.error('=== VERIFY STEP 2: getStatus failed', e?.message || e);
       return null;
     }
   },
@@ -33,19 +49,31 @@ export const verificationService = {
   /**
    * Generate a verification code (server-side only).
    * If a code already exists in the database, returns the existing code.
+   * Preserves the exact backend error message instead of returning null.
    */
-  async generateCode(mobileNumber?: string): Promise<VerificationStatus | null> {
-    try {
-      return await apiService.post<VerificationStatus>('/verification', mobileNumber ? { mobileNumber } : {});
-    } catch {
-      return null;
-    }
-  },
+  async generateCode(mobileNumber?: string): Promise<VerifyResult<VerificationStatus>> {
+    console.log('=== VERIFY STEP 1: generateCode called, mobileNumber =', mobileNumber || '(none)');
 
-  /** Check if the user has a verification code already */
-  async hasVerificationCode(userId: string): Promise<boolean> {
-    const status = await this.getStatus(userId);
-    return !!(status?.verificationCode);
+    // Client-side validation FIRST
+    if (!mobileNumber) {
+      console.error('=== VERIFY STEP 1b: Mobile number is required.');
+      return { ok: false, error: 'Mobile number is required.' };
+    }
+    if (!isMobileValid(mobileNumber)) {
+      console.error('=== VERIFY STEP 1b: Invalid mobile number format.');
+      return { ok: false, error: 'Please enter a valid 11-digit mobile number (e.g., 09171234567).' };
+    }
+
+    try {
+      console.log('=== VERIFY STEP 3: Sending POST /api/verification');
+      const data = await apiService.post<VerificationStatus>('/verification', { mobileNumber });
+      console.log('=== VERIFY STEP 4: Backend returned success', JSON.stringify(data));
+      return { ok: true, data };
+    } catch (e: any) {
+      console.error('=== VERIFY STEP 4: Backend returned error', e?.message || e);
+      // Preserve the EXACT backend error message
+      return { ok: false, error: e?.message || 'Unable to generate verification code.' };
+    }
   },
 
   /** Check if the user is verified */
@@ -60,10 +88,7 @@ export const verificationService = {
     return status?.status === 'PENDING';
   },
 
-  /**
-   * Legacy method for compatibility.
-   * Returns the verification request from the database or null.
-   */
+  /** Legacy getRequest for compatibility */
   async getRequest(userId: string): Promise<VerificationRequest | null> {
     const status = await this.getStatus(userId);
     if (!status) return null;
@@ -80,13 +105,11 @@ export const verificationService = {
     };
   },
 
-  /**
-   * Legacy method for compatibility.
-   * Creates a verification request via the backend.
-   */
+  /** Legacy createRequest for compatibility */
   async createRequest(userId: string, email: string, mobileNumber: string): Promise<VerificationRequest | null> {
-    const status = await this.generateCode(mobileNumber);
-    if (!status) return null;
+    const result = await this.generateCode(mobileNumber);
+    if (!result.ok || !result.data) return null;
+    const status = result.data;
     return {
       id: status.userId,
       userId: status.userId,
