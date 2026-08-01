@@ -23,8 +23,8 @@ export const AdminDeposits: React.FC = React.memo(() => {
   const [modalError, setModalError] = useState('');
   const perPage = 20;
 
-  const fetchDeposits = useCallback(() => {
-    const data = depositService.getDeposits();
+  const fetchDeposits = useCallback(async () => {
+    const data = await depositService.getDeposits();
     setDeposits(data);
     setLoading(false);
   }, []);
@@ -79,18 +79,19 @@ export const AdminDeposits: React.FC = React.memo(() => {
     if (!confirmAction) return;
     setProcessing(true);
     setModalError('');
-    const result = depositService.approveDeposit(confirmAction.deposit.id);
+    const success = await depositService.approveDeposit(confirmAction.deposit.id);
     setProcessing(false);
-    if (result.success) {
+    if (success) {
       setModalSuccess(`Deposit of ₱${confirmAction.deposit.amount.toLocaleString()} approved successfully`);
       setConfirmAction(null);
       fetchDeposits();
       if (selectedDeposit?.id === confirmAction.deposit.id) {
-        const updated = depositService.getDeposits().find(d => d.id === confirmAction.deposit.id);
+        const all = await depositService.getDeposits();
+        const updated = all.find(d => d.id === confirmAction.deposit.id);
         if (updated) setSelectedDeposit(updated);
       }
     } else {
-      setModalError(result.error || 'Failed to approve deposit');
+      setModalError('Failed to approve deposit');
     }
   };
 
@@ -98,19 +99,20 @@ export const AdminDeposits: React.FC = React.memo(() => {
     if (!confirmAction) return;
     setProcessing(true);
     setModalError('');
-    const result = depositService.rejectDeposit(confirmAction.deposit.id, rejectReason);
+    const success = await depositService.rejectDeposit(confirmAction.deposit.id, rejectReason);
     setProcessing(false);
-    if (result.success) {
+    if (success) {
       setModalSuccess(`Deposit rejected`);
       setConfirmAction(null);
       setRejectReason('');
       fetchDeposits();
       if (selectedDeposit?.id === confirmAction.deposit.id) {
-        const updated = depositService.getDeposits().find(d => d.id === confirmAction.deposit.id);
+        const all = await depositService.getDeposits();
+        const updated = all.find(d => d.id === confirmAction.deposit.id);
         if (updated) setSelectedDeposit(updated);
       }
     } else {
-      setModalError(result.error || 'Failed to reject deposit');
+      setModalError('Failed to reject deposit');
     }
   };
 

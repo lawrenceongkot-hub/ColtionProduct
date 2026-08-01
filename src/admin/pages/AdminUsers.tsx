@@ -55,8 +55,8 @@ export const AdminUsers: React.FC = React.memo(() => {
   const perPage = 20;
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchUsers = useCallback(() => {
-    const data = userManagementService.getUsers();
+  const fetchUsers = useCallback(async () => {
+    const data = await userManagementService.getUsers();
     setUsers(data);
     setLoading(false);
   }, []);
@@ -109,8 +109,8 @@ export const AdminUsers: React.FC = React.memo(() => {
   };
 
   // Build activity feed from audit log only (audit log itself is NOT displayed in profile)
-  const getActivityFeed = useCallback((userId: string) => {
-    const logs = userManagementService.getAuditLog(userId);
+  const getActivityFeed = useCallback(async (userId: string) => {
+    const logs = await userManagementService.getAuditLog(userId);
     const activityIcons: Record<string, { icon: string; color: string }> = {
       'Add Main Wallet': { icon: 'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6', color: '#10B981' },
       'Deduct Main Wallet': { icon: 'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6', color: '#EF4444' },
@@ -136,19 +136,19 @@ export const AdminUsers: React.FC = React.memo(() => {
 
   const [activityFeed, setActivityFeed] = useState<any[]>([]);
 
-  const loadUserProfile = useCallback((user: UserData) => {
+  const loadUserProfile = useCallback(async (user: UserData) => {
     setSelectedUser(user);
-    setWalletBalances(userManagementService.getWalletBalances(user.id));
-    setActivityFeed(getActivityFeed(user.id));
+    setWalletBalances(await userManagementService.getWalletBalances(user.id));
+    setActivityFeed(await getActivityFeed(user.id));
     setModalAmount('');
     setModalPassword('');
     setModalSuccess('');
     setModalError('');
   }, [getActivityFeed]);
 
-  const refreshProfileData = useCallback((userId: string) => {
-    setWalletBalances(userManagementService.getWalletBalances(userId));
-    setActivityFeed(getActivityFeed(userId));
+  const refreshProfileData = useCallback(async (userId: string) => {
+    setWalletBalances(await userManagementService.getWalletBalances(userId));
+    setActivityFeed(await getActivityFeed(userId));
     fetchUsers();
   }, [fetchUsers, getActivityFeed]);
 
@@ -160,10 +160,10 @@ export const AdminUsers: React.FC = React.memo(() => {
 
     let success = false;
     switch (action) {
-      case 'addMain': success = userManagementService.addMainWallet(userId, amount); break;
-      case 'deductMain': success = userManagementService.deductMainWallet(userId, amount); break;
-      case 'addSem': success = userManagementService.addSemWallet(userId, amount); break;
-      case 'deductSem': success = userManagementService.deductSemWallet(userId, amount); break;
+      case 'addMain': success = await userManagementService.addMainWallet(userId, amount); break;
+      case 'deductMain': success = await userManagementService.deductMainWallet(userId, amount); break;
+      case 'addSem': success = await userManagementService.addSemWallet(userId, amount); break;
+      case 'deductSem': success = await userManagementService.deductSemWallet(userId, amount); break;
     }
 
     setProcessing(false);
@@ -183,18 +183,18 @@ export const AdminUsers: React.FC = React.memo(() => {
 
     let success = false;
     switch (action) {
-      case 'ban': success = userManagementService.banUser(userId); break;
-      case 'unban': success = userManagementService.unbanUser(userId); break;
-      case 'suspend': success = userManagementService.suspendUser(userId); break;
-      case 'activate': success = userManagementService.activateUser(userId); break;
-      case 'forceLogout': success = userManagementService.forceLogout(userId); break;
+      case 'ban': success = await userManagementService.banUser(userId); break;
+      case 'unban': success = await userManagementService.unbanUser(userId); break;
+      case 'suspend': success = await userManagementService.suspendUser(userId); break;
+      case 'activate': success = await userManagementService.activateUser(userId); break;
+      case 'forceLogout': success = await userManagementService.forceLogout(userId); break;
       case 'changePassword': {
         if (!modalPassword || modalPassword.length < 6) {
           setModalError('Password must be at least 6 characters');
           setProcessing(false);
           return;
         }
-        success = userManagementService.changePassword(userId, modalPassword);
+        success = await userManagementService.changePassword(userId, modalPassword);
         break;
       }
     }

@@ -1,5 +1,23 @@
 import { adminApi } from './adminApi';
 
+export interface DepositRecord {
+  id: string;
+  userId: string;
+  reference: string;
+  amount: number;
+  method: string;
+  status: string;
+  createdAt: string;
+  completedAt: string | null;
+  approvedBy: string | null;
+  rejectionReason: string | null;
+  bonusApplied: number;
+  bonusType: string | null;
+  userFullName: string;
+  userEmail: string;
+  userPhone: string;
+}
+
 export const depositService = {
   async getDeposits(): Promise<any[]> {
     try {

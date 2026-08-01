@@ -25,8 +25,8 @@ export const AdminOrders: React.FC = React.memo(() => {
   const [walletInfo, setWalletInfo] = useState<any>(null);
   const perPage = 20;
 
-  const fetchData = useCallback(() => {
-    const data = orderManagementService.getOrders();
+  const fetchData = useCallback(async () => {
+    const data = await orderManagementService.getOrders();
     setOrders(data);
     setLoading(false);
   }, []);
@@ -68,21 +68,22 @@ export const AdminOrders: React.FC = React.memo(() => {
     else { setSortField(field); setSortDir('asc'); }
   };
 
-  const openDetails = (order: OrderRecord) => {
+  const openDetails = async (order: OrderRecord) => {
     setSelectedOrder(order);
-    setWalletInfo(orderManagementService.getWalletInfo(order.userId));
-    setProfitHistory(orderManagementService.getProfitHistory(order.id));
+    setWalletInfo(await orderManagementService.getWalletInfo(order.userId));
+    setProfitHistory(await orderManagementService.getProfitHistory(order.id));
     setModalSuccess(''); setModalError(''); setCancelReason('');
   };
 
-  const refreshAfterAction = () => {
-    fetchData();
+  const refreshAfterAction = async () => {
+    await fetchData();
     if (selectedOrder) {
-      const updated = orderManagementService.getOrders().find(o => o.id === selectedOrder.id);
+      const all = await orderManagementService.getOrders();
+      const updated = all.find(o => o.id === selectedOrder.id);
       if (updated) {
         setSelectedOrder(updated);
-        setProfitHistory(orderManagementService.getProfitHistory(updated.id));
-        setWalletInfo(orderManagementService.getWalletInfo(updated.userId));
+        setProfitHistory(await orderManagementService.getProfitHistory(updated.id));
+        setWalletInfo(await orderManagementService.getWalletInfo(updated.userId));
       }
     }
   };
@@ -92,22 +93,22 @@ export const AdminOrders: React.FC = React.memo(() => {
     const { type, order } = confirmAction;
     setProcessing(true); setModalError('');
 
-    let result: any = { success: false };
+    let success = false;
     switch (type) {
-      case 'pause': result = orderManagementService.pauseOrder(order.id); break;
-      case 'resume': result = orderManagementService.resumeOrder(order.id); break;
-      case 'cancel': result = orderManagementService.cancelOrder(order.id, cancelReason || undefined); break;
-      case 'complete': result = orderManagementService.completeOrder(order.id); break;
-      case 'creditProfit': result = orderManagementService.manualCreditProfit(order.id); break;
+      case 'pause': success = await orderManagementService.pauseOrder(order.id); break;
+      case 'resume': success = await orderManagementService.resumeOrder(order.id); break;
+      case 'cancel': success = await orderManagementService.cancelOrder(order.id, cancelReason || undefined); break;
+      case 'complete': success = await orderManagementService.completeOrder(order.id); break;
+      case 'creditProfit': success = await orderManagementService.manualCreditProfit(order.id); break;
     }
 
     setProcessing(false);
-    if (result.success) {
+    if (success) {
       setModalSuccess(`${type === 'creditProfit' ? 'Profit credited' : 'Order ' + type + 'd'} successfully`);
       setConfirmAction(null);
       refreshAfterAction();
     } else {
-      setModalError(result.error || `Failed to ${type} order`);
+      setModalError(`Failed to ${type} order`);
     }
   };
 

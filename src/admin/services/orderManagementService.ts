@@ -1,5 +1,26 @@
 import { adminApi } from './adminApi';
 
+export interface OrderRecord {
+  id: string;
+  userId: string;
+  vipLevel: number;
+  vipName: string;
+  buyAmount: number;
+  duration: number;
+  dailyRate: number;
+  dailyProfitPerDay: number;
+  totalReturn: number;
+  currentProfit: number;
+  completedDays: number;
+  progressPercent: number;
+  daysRemaining: number;
+  status: string;
+  purchaseDate: string;
+  userFullName: string;
+  userEmail: string;
+  userPhone: string;
+}
+
 export const orderManagementService = {
   async getOrders(): Promise<any[]> {
     try {

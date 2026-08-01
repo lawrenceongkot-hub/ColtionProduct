@@ -1,5 +1,32 @@
 import { adminApi } from './adminApi';
 
+export interface WithdrawalRecord {
+  id: string;
+  userId: string;
+  reference: string;
+  amount: number;
+  fee: number;
+  netAmount: number;
+  method: string;
+  accountName: string;
+  accountNumber: string;
+  status: string;
+  createdAt: string;
+  approvedAt: string | null;
+  completedAtTime: string | null;
+  approvedBy: string | null;
+  processedBy: string | null;
+  completedBy: string | null;
+  paymentReference: string | null;
+  transferReference: string | null;
+  rejectionReason: string | null;
+  notes: string | null;
+  userFullName: string;
+  userEmail: string;
+  userPhone: string;
+  userStatus: string;
+}
+
 export const withdrawalService = {
   async getWithdrawals(): Promise<any[]> {
     try {

@@ -27,8 +27,8 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
   const [walletInfo, setWalletInfo] = useState<any>(null);
   const perPage = 20;
 
-  const fetchData = useCallback(() => {
-    const data = withdrawalService.getWithdrawals();
+  const fetchData = useCallback(async () => {
+    const data = await withdrawalService.getWithdrawals();
     setWithdrawals(data);
     setLoading(false);
   }, []);
@@ -69,18 +69,19 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
     else { setSortField(field); setSortDir('asc'); }
   };
 
-  const openDetails = (w: WithdrawalRecord) => {
+  const openDetails = async (w: WithdrawalRecord) => {
     setSelectedW(w);
-    setWalletInfo(withdrawalService.getWalletInfo(w.userId));
+    setWalletInfo(await withdrawalService.getWalletInfo(w.userId));
     setModalSuccess(''); setModalError('');
     setRejectReason(''); setPaymentRef(''); setTransferRef(''); setNotes('');
   };
 
-  const refreshAfterAction = (withdrawalId: string) => {
-    fetchData();
+  const refreshAfterAction = async (withdrawalId: string) => {
+    await fetchData();
     if (selectedW?.id === withdrawalId) {
-      const updated = withdrawalService.getWithdrawals().find(w => w.id === withdrawalId);
-      if (updated) { setSelectedW(updated); setWalletInfo(withdrawalService.getWalletInfo(updated.userId)); }
+      const all = await withdrawalService.getWithdrawals();
+      const updated = all.find(w => w.id === withdrawalId);
+      if (updated) { setSelectedW(updated); setWalletInfo(await withdrawalService.getWalletInfo(updated.userId)); }
     }
   };
 
@@ -89,21 +90,21 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
     const { type, withdrawal } = confirmAction;
     setProcessing(true); setModalError('');
 
-    let result: any = { success: false, error: 'Unknown action' };
+    let success = false;
     switch (type) {
-      case 'approve': result = withdrawalService.approveWithdrawal(withdrawal.id); break;
-      case 'process': result = withdrawalService.processWithdrawal(withdrawal.id, notes || undefined); break;
-      case 'complete': result = withdrawalService.completeWithdrawal(withdrawal.id, paymentRef || undefined, transferRef || undefined, notes || undefined); break;
-      case 'reject': result = withdrawalService.rejectWithdrawal(withdrawal.id, rejectReason || undefined); break;
+      case 'approve': success = await withdrawalService.approveWithdrawal(withdrawal.id); break;
+      case 'process': success = await withdrawalService.processWithdrawal(withdrawal.id, notes || undefined); break;
+      case 'complete': success = await withdrawalService.completeWithdrawal(withdrawal.id, paymentRef || undefined, transferRef || undefined, notes || undefined); break;
+      case 'reject': success = await withdrawalService.rejectWithdrawal(withdrawal.id, rejectReason || undefined); break;
     }
 
     setProcessing(false);
-    if (result.success) {
+    if (success) {
       setModalSuccess(`Withdrawal ${type}d successfully`);
       setConfirmAction(null);
       refreshAfterAction(withdrawal.id);
     } else {
-      setModalError(result.error || `Failed to ${type} withdrawal`);
+      setModalError(`Failed to ${type} withdrawal`);
     }
   };
 
