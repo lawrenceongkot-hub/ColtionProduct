@@ -708,12 +708,43 @@ app.use('/api', async (req, res) => {
     }
 
     if (m === 'GET' && p === '/api/admin/withdrawals') {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const w = await prisma.withdrawal.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(w); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const w = await prisma.withdrawal.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true, phone: true, status: true } } } });
+        const enriched = w.map(x => ({
+          ...x,
+          fee: 0,
+          netAmount: x.amount,
+          accountName: x.user?.fullName || '',
+          accountNumber: x.walletNumber || '',
+          approvedAt: x.completedAt,
+          completedAtTime: x.completedAt,
+          processedBy: x.approvedBy,
+          completedBy: x.approvedBy,
+          paymentReference: null,
+          transferReference: null,
+          userFullName: x.user?.fullName || '',
+          userEmail: x.user?.email || '',
+          userPhone: x.user?.phone || '',
+          userStatus: x.user?.status || 'active',
+        }));
+        return res.json(enriched);
+      } catch { return res.status(500).json({ error: 'Failed' }); }
     }
     if (m === 'PUT' && p.includes('/api/admin/withdrawals/') && p.endsWith('/approve')) {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const w = await prisma.withdrawal.update({ where: { id }, data: { status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } }); return res.json(w); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const id = p.split('/')[4];
+        const existing = await prisma.withdrawal.findUnique({ where: { id } });
+        if (!existing) return res.status(404).json({ error: 'Withdrawal not found' });
+        if (existing.status === 'SUCCESS') return res.status(400).json({ error: 'Withdrawal already approved' });
+        const w = await prisma.$transaction(async (tx) => {
+          const updated = await tx.withdrawal.update({ where: { id }, data: { status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } });
+          await tx.wallet.update({ where: { userId: existing.userId }, data: { main: { decrement: existing.amount } } });
+          return updated;
+        });
+        return res.json({ ...w, fee: 0, netAmount: w.amount, approvedAt: w.completedAt, completedAtTime: w.completedAt, processedBy: w.approvedBy, completedBy: w.approvedBy, paymentReference: null, transferReference: null, accountNumber: w.walletNumber || '', accountName: '' });
+      } catch (e) { console.error('Approve withdrawal error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
     if (m === 'PUT' && p.includes('/api/admin/withdrawals/') && p.endsWith('/reject')) {
       try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { reason } = body; const w = await prisma.withdrawal.update({ where: { id }, data: { status: 'FAILED', rejectionReason: reason || 'Rejected', approvedBy: u.email } }); await prisma.wallet.update({ where: { userId: w.userId }, data: { main: { increment: w.amount } } }); return res.json(w); }

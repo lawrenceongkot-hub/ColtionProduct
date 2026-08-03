@@ -75,7 +75,7 @@ model User {
   updatedAt            DateTime @updatedAt
 
   wallet               Wallet?
-  ewallet              EWallet?
+  ewallets             EWallet[]
   orders               InvestmentOrder[]
   transactions         Transaction[]
   referrals            Referral[]       @relation("UserReferrals")
@@ -206,11 +206,13 @@ model InvestmentOrder {
 
 model EWallet {
   id                 String @id @default(cuid())
-  userId             String @unique
+  userId             String
   provider           String
   walletNumber       String
   withdrawalPassword String
   user               User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Referral {

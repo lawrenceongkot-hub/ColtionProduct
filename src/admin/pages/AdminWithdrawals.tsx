@@ -338,11 +338,11 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
                     { label: 'Withdrawal Method', value: selectedW.method },
                     { label: 'Account Name', value: selectedW.accountName },
                     { label: 'Account Number', value: selectedW.accountNumber },
-                    { label: 'Requested Amount', value: `₱${selectedW.amount.toLocaleString()}` },
-                    { label: 'Processing Fee (2%)', value: `₱${selectedW.fee.toLocaleString()}` },
-                    { label: 'Net Amount to Send', value: `₱${selectedW.netAmount.toLocaleString()}` },
+                    { label: 'Requested Amount', value: `₱${(selectedW.amount ?? 0).toLocaleString()}` },
+                    { label: 'Processing Fee (2%)', value: `₱${(selectedW.fee ?? 0).toLocaleString()}` },
+                    { label: 'Net Amount to Send', value: `₱${(selectedW.netAmount ?? selectedW.amount ?? 0).toLocaleString()}` },
                     { label: 'Status', value: <span style={{ padding: '2px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: `${statusColor(selectedW.status)}15`, color: statusColor(selectedW.status), border: `1px solid ${statusColor(selectedW.status)}22` }}>{selectedW.status}</span> },
-                    { label: 'Request Date', value: new Date(selectedW.createdAt).toLocaleString() },
+                    { label: 'Request Date', value: selectedW.createdAt ? new Date(selectedW.createdAt).toLocaleString() : '-' },
                     { label: 'Approved Date', value: selectedW.approvedAt ? new Date(selectedW.approvedAt).toLocaleString() : '-' },
                     { label: 'Completed Date', value: selectedW.completedAtTime ? new Date(selectedW.completedAtTime).toLocaleString() : '-' },
                     { label: 'Approved By', value: selectedW.approvedBy || '-' },
@@ -422,11 +422,11 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
               <div style={{ marginBottom: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Amount</span>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#FFFFFF' }}>₱{confirmAction.withdrawal.amount.toLocaleString()}</span>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#FFFFFF' }}>₱{(confirmAction.withdrawal.amount ?? 0).toLocaleString()}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Net Amount</span>
-                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#10B981' }}>₱{confirmAction.withdrawal.netAmount.toLocaleString()}</span>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#10B981' }}>₱{(confirmAction.withdrawal.netAmount ?? confirmAction.withdrawal.amount ?? 0).toLocaleString()}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>User</span>
