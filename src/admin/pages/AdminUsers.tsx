@@ -20,6 +20,7 @@ interface UserData {
   device: string;
   referralCode: string;
   referredBy: string;
+  referrerDisplayId: string;
   createdAt: number;
   wallet: { main: number; semWallet: number; ongoing: number };
 }
@@ -380,7 +381,7 @@ export const AdminUsers: React.FC = React.memo(() => {
                   {new Date(u.createdAt).toLocaleDateString()}
                 </td>
                 <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.4)', fontFamily: 'monospace', fontSize: '11px' }}>
-                  {u.referralCode}
+                  {u.referrerDisplayId || u.referralCode || 'Direct Registration'}
                 </td>
                 <td style={{ padding: '10px 12px' }}>
                   <button onClick={() => loadUserProfile(u)} style={{
@@ -470,7 +471,7 @@ export const AdminUsers: React.FC = React.memo(() => {
                     { label: 'Last Login IP', value: selectedUser.lastLoginIp },
                     { label: 'Device', value: selectedUser.device },
                     { label: 'Referral Code', value: selectedUser.referralCode },
-                    { label: 'Referred By', value: selectedUser.referredBy },
+                    { label: 'Referred By', value: selectedUser.referrerDisplayId || selectedUser.referredBy || 'Direct Registration' },
                     { label: 'Account Status',
                       value: <span style={{
                         padding: '2px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,

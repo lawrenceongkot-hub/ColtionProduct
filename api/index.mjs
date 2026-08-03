@@ -50,7 +50,7 @@ app.use('/api', async (req, res) => {
 
     // POST /api/auth/register
     if (m === 'POST' && p === '/api/auth/register') {
-      const { fullName, email, phone, password, referralCode } = body;
+      const { fullName, email, phone, password, referralCode, deviceFingerprint, userAgent } = body;
       if (!fullName || !email || !phone || !password) return res.status(400).json({ error: 'Missing required fields' });
       const e = email.toLowerCase().trim();
       if (await prisma.user.findUnique({ where: { email: e } })) return res.status(400).json({ error: 'Email is already registered.' });
@@ -60,30 +60,51 @@ app.use('/api', async (req, res) => {
       const displayId = String(Math.floor(Math.random() * 10000000000)).padStart(10, '0');
       const invCode = Math.random().toString(36).substring(2, 10).toUpperCase();
       const baseUrl = process.env.FRONTEND_URL || 'https://coltionproduct.vercel.app';
+      const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || '127.0.0.1';
+      const fp = deviceFingerprint || '';
+      const ua = userAgent || req.headers['user-agent'] || '';
 
       let invitedBy = null;
       let referrerAgentId = null;
+      let referrerDisplayId = null;
       if (referralCode) {
         const code = referralCode.trim().toUpperCase();
         const ru = await prisma.user.findFirst({ where: { invitationCode: code } });
         const ag = await prisma.agentProfile.findUnique({ where: { agentCode: code } }).catch(() => null);
-        if (ru) invitedBy = code;
+        if (ru) { invitedBy = code; referrerDisplayId = ru.displayId; }
         if (ag) referrerAgentId = ag.id;
+      }
+
+      // Welcome Bonus Anti-Abuse: Block only if SAME device AND SAME IP
+      let bonusBlocked = false;
+      let bonusBlockReason = '';
+      if (fp && ip) {
+        const existing = await prisma.registrationFingerprint.findFirst({ where: { deviceFingerprint: fp, ipAddress: ip } });
+        if (existing) {
+          bonusBlocked = true;
+          bonusBlockReason = 'Duplicate Device + IP';
+        }
       }
 
       const user = await prisma.$transaction(async (tx) => {
         const u = await tx.user.create({
-          data: { displayId, email: e, password: hashed, fullName, phone, invitationCode: invCode, invitationLink: `${baseUrl}/register?ref=${invCode}`, invitedBy, referrerAgentId, referralCount: 0, totalReferralEarnings: 0 },
+          data: { displayId, email: e, password: hashed, fullName, phone, invitationCode: invCode, invitationLink: `${baseUrl}/register?ref=${invCode}`, invitedBy, referrerAgentId, referrerDisplayId, registrationIp: ip, deviceFingerprint: fp, userAgent: ua, referralSource: referralCode ? 'invitation' : 'direct', invitationCodeUsed: referralCode || '', bonusGranted: !bonusBlocked, bonusBlocked, bonusBlockReason, referralCount: 0, totalReferralEarnings: 0 },
         });
         await tx.wallet.create({ data: { userId: u.id, main: 0, semWallet: 0, ongoing: 0 } });
+        await tx.registrationFingerprint.create({ data: { userId: u.id, fullName, ipAddress: ip, deviceFingerprint: fp } });
         if (invitedBy) {
           await tx.referral.create({ data: { inviterCode: invitedBy, referredUserId: u.id, referredName: fullName, referredEmail: email, status: 'active' } });
           const inviter = await tx.user.findFirst({ where: { invitationCode: invitedBy } });
           if (inviter) await tx.user.update({ where: { id: inviter.id }, data: { referralCount: inviter.referralCount + 1 } });
         }
         if (referrerAgentId) {
-          await tx.agentReferral.create({ data: { agentId: referrerAgentId, userId: u.id, fullName, email: e, status: 'WAITING_DEPOSIT' } });
+          await tx.agentReferral.create({ data: { agentId: referrerAgentId, userId: u.id, fullName, email: e, status: 'WAITING_DEPOSIT', referrerDisplayId: referrerDisplayId || '', registrationIp: ip, deviceFingerprint: fp, userAgent: ua, bonusGranted: !bonusBlocked, bonusBlocked, bonusBlockReason } });
           await tx.agentProfile.update({ where: { id: referrerAgentId }, data: { totalReferrals: { increment: 1 } } });
+        }
+        if (!bonusBlocked) {
+          await tx.welcomeBonusClaim.create({ data: { userId: u.id, amount: 100, ipAddress: ip, deviceFingerprint: fp, status: 'CLAIMED' } });
+          await tx.wallet.update({ where: { userId: u.id }, data: { main: { increment: 100 } } });
+          await tx.transaction.create({ data: { userId: u.id, type: 'WELCOME_BONUS', amount: 100, method: 'system', reference: 'BONUS-' + Date.now(), status: 'SUCCESS', bonusApplied: 100, bonusType: 'WELCOME_BONUS' } });
         }
         const at = jwt.sign({ id: u.id, email: u.email }, process.env.JWT_SECRET || 'fallback', { expiresIn: '15m' });
         const rt = jwt.sign({ id: u.id, email: u.email }, process.env.JWT_REFRESH_SECRET || 'fallback-r', { expiresIn: '7d' });
@@ -91,7 +112,7 @@ app.use('/api', async (req, res) => {
         return { user: u, accessToken: at, refreshToken: rt };
       });
 
-      return res.status(201).json({ user: { id: user.user.id, displayId, fullName, email, phone, invitationCode: invCode, invitedBy, createdAt: user.user.createdAt }, accessToken: user.accessToken, refreshToken: user.refreshToken });
+      return res.status(201).json({ user: { id: user.user.id, displayId, fullName, email, phone, invitationCode: invCode, invitedBy, referrerDisplayId, bonusGranted: !bonusBlocked, bonusBlocked, bonusBlockReason, createdAt: user.user.createdAt }, accessToken: user.accessToken, refreshToken: user.refreshToken });
     }
 
     // POST /api/auth/login
@@ -447,8 +468,33 @@ app.use('/api', async (req, res) => {
       catch { return res.status(500).json({ error: 'Failed' }); }
     }
     if (m === 'PUT' && p.includes('/api/admin/deposits/') && p.endsWith('/approve')) {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const d = await prisma.deposit.update({ where: { id }, data: { status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } }); await prisma.wallet.update({ where: { userId: d.userId }, data: { main: { increment: d.amount } } }); return res.json(d); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const id = p.split('/')[4];
+        const d = await prisma.deposit.findUnique({ where: { id } });
+        if (!d) return res.status(404).json({ error: 'Deposit not found' });
+        await prisma.$transaction(async (tx) => {
+          await tx.deposit.update({ where: { id }, data: { status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } });
+          await tx.wallet.update({ where: { userId: d.userId }, data: { main: { increment: d.amount } } });
+          await tx.transaction.create({ data: { userId: d.userId, type: 'DEPOSIT', amount: d.amount, method: d.method, reference: d.reference, status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } });
+          // Referral commission: check if depositing user has a referrer
+          const depositor = await tx.user.findUnique({ where: { id: d.userId }, select: { referrerAgentId: true, invitedBy: true } });
+          if (depositor?.referrerAgentId) {
+            const settings = await tx.platformSettings.findFirst();
+            const rate = (settings?.referralCommissionPercent || 30) / 100;
+            const commission = d.amount * rate;
+            const agent = await tx.agentProfile.findUnique({ where: { id: depositor.referrerAgentId } });
+            if (agent) {
+              await tx.agentCommission.create({ data: { agentId: agent.id, referredUserId: d.userId, referredName: d.user?.fullName || 'User', depositAmount: d.amount, commissionRate: rate, commissionAmount: commission } });
+              await tx.agentProfile.update({ where: { id: agent.id }, data: { totalCommission: { increment: commission }, qualifiedDeposits: { increment: 1 }, availableBalance: { increment: commission } } });
+              await tx.agentReferral.updateMany({ where: { agentId: agent.id, userId: d.userId }, data: { status: 'COMMISSION_PAID', firstDeposit: d.amount, commission } });
+              await tx.wallet.update({ where: { userId: agent.userId }, data: { main: { increment: commission } } });
+              await tx.transaction.create({ data: { userId: agent.userId, type: 'REFERRAL_COMMISSION', amount: commission, method: 'system', reference: 'COMM-' + Date.now(), status: 'SUCCESS' } });
+            }
+          }
+        });
+        return res.json({ success: true });
+      } catch { return res.status(500).json({ error: 'Failed' }); }
     }
     if (m === 'PUT' && p.includes('/api/admin/deposits/') && p.endsWith('/reject')) {
       try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { reason } = body; const d = await prisma.deposit.update({ where: { id }, data: { status: 'FAILED', rejectionReason: reason || 'Rejected', approvedBy: u.email } }); return res.json(d); }
@@ -514,8 +560,27 @@ app.use('/api', async (req, res) => {
     }
 
     if (m === 'GET' && p === '/api/admin/agents') {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const a = await prisma.agentProfile.findMany({ orderBy: { id: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(a); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const agents = await prisma.agentProfile.findMany({ orderBy: { id: 'desc' }, include: { user: { select: { fullName: true, email: true, displayId: true } }, referrals: true, commissions: true } });
+        const enriched = await Promise.all(agents.map(async (a) => {
+          const referredUserIds = a.referrals.map(r => r.userId);
+          const users = referredUserIds.length ? await prisma.user.findMany({ where: { id: { in: referredUserIds } }, select: { id: true, verificationStatus: true, status: true, deposits: { where: { status: 'SUCCESS' }, select: { amount: true } }, withdrawals: { where: { status: 'SUCCESS' }, select: { amount: true } } } }) : [];
+          const totalDeposits = users.reduce((sum, usr) => sum + usr.deposits.reduce((s, d) => s + d.amount, 0), 0);
+          const totalWithdrawals = users.reduce((sum, usr) => sum + usr.withdrawals.reduce((s, w) => s + w.amount, 0), 0);
+          const verifiedUsers = users.filter(usr => usr.verificationStatus === 'APPROVED').length;
+          const activeUsers = users.filter(usr => usr.status === 'active').length;
+          const inactiveUsers = users.filter(usr => usr.status !== 'active').length;
+          const usersWithDeposit = users.filter(usr => usr.deposits.length > 0).length;
+          const usersWithoutDeposit = users.length - usersWithDeposit;
+          const totalCommission = a.commissions.reduce((sum, c) => sum + c.commissionAmount, 0);
+          const pendingCommission = a.referrals.filter(r => r.status === 'WAITING_DEPOSIT' && r.firstDeposit).reduce((sum, r) => sum + (r.commission || 0), 0);
+          const paidCommission = a.commissions.reduce((sum, c) => sum + c.commissionAmount, 0);
+          const conversionRate = a.totalReferrals > 0 ? Math.round((usersWithDeposit / a.totalReferrals) * 100) : 0;
+          return { ...a, displayId: a.user?.displayId || '', totalDeposits, totalWithdrawals, verifiedUsers, activeUsers, inactiveUsers, usersWithDeposit, usersWithoutDeposit, totalCommission, pendingCommission, paidCommission, conversionRate };
+        }));
+        return res.json(enriched);
+      } catch { return res.status(500).json({ error: 'Failed' }); }
     }
     if (m === 'PUT' && p.startsWith('/api/admin/agents/') && (p.endsWith('/suspend') || p.endsWith('/ban') || p.endsWith('/reactivate'))) {
       try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const status = p.endsWith('/suspend') ? 'suspended' : p.endsWith('/ban') ? 'banned' : 'active'; const a = await prisma.agentProfile.update({ where: { id }, data: { status } }); return res.json(a); }

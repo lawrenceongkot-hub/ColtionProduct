@@ -56,6 +56,15 @@ model User {
   invitationLink       String   @default("")
   invitedBy            String?
   referrerAgentId      String?
+  referrerDisplayId    String?
+  registrationIp       String   @default("")
+  deviceFingerprint    String   @default("")
+  userAgent            String   @default("")
+  referralSource       String   @default("")
+  invitationCodeUsed   String   @default("")
+  bonusGranted         Boolean  @default(false)
+  bonusBlocked         Boolean  @default(false)
+  bonusBlockReason     String   @default("")
   referralCount        Int      @default(0)
   totalReferralEarnings Float   @default(0)
   verificationCode     String?
@@ -240,6 +249,13 @@ model AgentReferral {
   firstDeposit   Float?
   commission     Float?
   status         ReferralStatus @default(WAITING_DEPOSIT)
+  referrerDisplayId String      @default("")
+  registrationIp    String      @default("")
+  deviceFingerprint String      @default("")
+  userAgent         String      @default("")
+  bonusGranted      Boolean     @default(false)
+  bonusBlocked      Boolean     @default(false)
+  bonusBlockReason  String      @default("")
   agent          AgentProfile   @relation(fields: [agentId], references: [id], onDelete: Cascade)
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
