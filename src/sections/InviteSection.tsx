@@ -439,11 +439,11 @@ export const InviteSection: React.FC = React.memo(() => {
                       <tr key={r.id} style={{ borderTop: `1px solid ${colors.borderDefault}`, background: i % 2 === 0 ? 'transparent' : colors.bgGlass }}>
                         <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', color: colors.textSecondary, fontFamily: typography.fontFamily, whiteSpace: 'nowrap' }}>{new Date(r.registeredDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                         <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', color: colors.textPrimary, fontFamily: typography.fontFamily, fontWeight: typography.semibold }}>{r.fullName}</td>
-                        <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', textAlign: 'right', color: colors.textPrimary, fontFamily: typography.fontFamily }}>{r.firstDeposit ? FORMAT_CURRENCY(r.firstDeposit) : '—'}</td>
+                        <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', textAlign: 'right', color: colors.textPrimary, fontFamily: typography.fontFamily }}>{r.totalApprovedDeposits && r.totalApprovedDeposits > 0 ? FORMAT_CURRENCY(r.totalApprovedDeposits) : '—'}</td>
                         <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', textAlign: 'right', color: r.commission ? colors.success : colors.textTertiary, fontFamily: typography.fontFamily, fontWeight: r.commission ? typography.semibold : typography.regular }}>{r.commission ? FORMAT_CURRENCY(r.commission) : '—'}</td>
                         <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', textAlign: 'center' }}>
-                          <span style={{ fontSize: typography.xs, fontWeight: typography.semibold, padding: '2px 10px', borderRadius: borderRadius.full, background: r.status === 'commission_paid' ? 'rgba(16,185,129,0.1)' : 'rgba(234,179,8,0.1)', border: `1px solid ${r.status === 'commission_paid' ? 'rgba(16,185,129,0.3)' : 'rgba(234,179,8,0.3)'}`, color: r.status === 'commission_paid' ? colors.success : colors.warning, fontFamily: typography.fontFamily }}>
-                            {r.status === 'commission_paid' ? 'Paid' : 'Waiting Deposit'}
+                          <span style={{ fontSize: typography.xs, fontWeight: typography.semibold, padding: '2px 10px', borderRadius: borderRadius.full, background: r.displayStatus === 'qualified' ? 'rgba(16,185,129,0.1)' : 'rgba(234,179,8,0.1)', border: `1px solid ${r.displayStatus === 'qualified' ? 'rgba(16,185,129,0.3)' : 'rgba(234,179,8,0.3)'}`, color: r.displayStatus === 'qualified' ? colors.success : colors.warning, fontFamily: typography.fontFamily }}>
+                            {r.displayStatus === 'qualified' ? 'Qualified' : 'Waiting Deposit'}
                           </span>
                         </td>
                       </tr>
@@ -490,41 +490,6 @@ export const InviteSection: React.FC = React.memo(() => {
             </motion.div>
           )}
 
-          {/* Recent Referrals (from /api/referrals) */}
-          {stats.recentReferrals.length > 0 && (
-            <motion.div
-              style={{
-                width: '100%',
-                background: colors.gradientGlass,
-                backdropFilter: 'blur(20px)',
-                WebkitBackdropFilter: 'blur(20px)',
-                border: `1px solid ${colors.borderDefault}`,
-                borderRadius: borderRadius.xl,
-                overflow: 'hidden',
-              }}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: 0.3 }}
-            >
-              <div style={{ padding: 'clamp(16px, 2.5vw, 24px)', display: 'flex', flexDirection: 'column', gap: 'clamp(12px, 1.5vh, 16px)' }}>
-                <h3 style={{ fontSize: typography.md, fontWeight: typography.bold, color: colors.textPrimary, fontFamily: typography.fontFamily }}>Recently Joined</h3>
-                {stats.recentReferrals.map((ref, i) => (
-                  <div key={ref.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'clamp(8px, 1.2vh, 12px) 0', borderBottom: i < stats.recentReferrals.length - 1 ? `1px solid ${colors.borderDefault}` : 'none' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{ width: 'clamp(32px, 3.5vw, 36px)', height: 'clamp(32px, 3.5vw, 36px)', borderRadius: '50%', background: colors.gradientBlue, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: typography.xs, fontWeight: typography.bold, color: colors.textPrimary }}>
-                        {ref.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-                      </div>
-                      <div>
-                        <p style={{ fontSize: typography.base, fontWeight: typography.medium, color: colors.textPrimary, fontFamily: typography.fontFamily }}>{ref.fullName}</p>
-                        <p style={{ fontSize: typography.xs, color: colors.textTertiary, fontFamily: typography.fontFamily }}>{new Date(ref.joinedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
-                      </div>
-                    </div>
-                    <span style={{ fontSize: typography.xs, fontWeight: typography.semibold, color: colors.success, fontFamily: typography.fontFamily }}>Active</span>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          )}
         </>
       )}
     </div>

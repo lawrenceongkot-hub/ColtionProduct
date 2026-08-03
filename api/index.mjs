@@ -292,6 +292,7 @@ app.use('/api', async (req, res) => {
         // Merge both sources, deduplicate by referredUserId
         const merged = new Map();
         referralRows.forEach(r => {
+          const totalDep = r.referredUser.deposits.reduce((s, d) => s + d.amount, 0);
           merged.set(r.referredUserId, {
             id: r.id,
             referredUserId: r.referredUserId,
@@ -302,14 +303,15 @@ app.use('/api', async (req, res) => {
             status: r.status,
             verificationStatus: r.referredUser.verificationStatus || 'NONE',
             isVerified: r.referredUser.verificationStatus === 'APPROVED',
-            isActive: r.referredUser.status === 'active',
-            hasDeposit: r.referredUser.deposits.reduce((s, d) => s + d.amount, 0) > 0,
-            totalDeposit: r.referredUser.deposits.reduce((s, d) => s + d.amount, 0),
+            isActive: totalDep >= 100,
+            hasDeposit: totalDep > 0,
+            totalDeposit: totalDep,
             totalWithdrawal: r.referredUser.withdrawals.reduce((s, w) => s + w.amount, 0),
           });
         });
         invitedUsers.forEach(ru => {
           if (!merged.has(ru.id)) {
+            const totalDep = ru.deposits.reduce((s, d) => s + d.amount, 0);
             merged.set(ru.id, {
               id: ru.id,
               referredUserId: ru.id,
@@ -320,9 +322,9 @@ app.use('/api', async (req, res) => {
               status: 'active',
               verificationStatus: ru.verificationStatus || 'NONE',
               isVerified: ru.verificationStatus === 'APPROVED',
-              isActive: ru.status === 'active',
-              hasDeposit: ru.deposits.reduce((s, d) => s + d.amount, 0) > 0,
-              totalDeposit: ru.deposits.reduce((s, d) => s + d.amount, 0),
+              isActive: totalDep >= 100,
+              hasDeposit: totalDep > 0,
+              totalDeposit: totalDep,
               totalWithdrawal: ru.withdrawals.reduce((s, w) => s + w.amount, 0),
             });
           }
@@ -454,8 +456,22 @@ app.use('/api', async (req, res) => {
       catch { return res.status(500).json({ error: 'Failed' }); }
     }
     if (m === 'GET' && p === '/api/agents/referrals') {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const a = await prisma.agentProfile.findUnique({ where: { userId: u.id } }); if (!a) return res.status(404).json({ error: 'Agent not found' }); const r = await prisma.agentReferral.findMany({ where: { agentId: a.id }, orderBy: { registeredDate: 'desc' } }); return res.json(r); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const a = await prisma.agentProfile.findUnique({ where: { userId: u.id } });
+        if (!a) return res.status(404).json({ error: 'Agent not found' });
+        const r = await prisma.agentReferral.findMany({ where: { agentId: a.id }, orderBy: { registeredDate: 'desc' }, include: { user: { select: { deposits: { where: { status: 'SUCCESS' }, select: { amount: true } } } } } });
+        const enriched = r.map(ref => {
+          const totalApprovedDeposits = (ref.user?.deposits || []).reduce((s, d) => s + d.amount, 0);
+          const qualified = totalApprovedDeposits >= 100;
+          return {
+            ...ref,
+            totalApprovedDeposits,
+            displayStatus: qualified ? 'qualified' : 'waiting_deposit',
+          };
+        });
+        return res.json(enriched);
+      } catch { return res.status(500).json({ error: 'Failed' }); }
     }
     if (m === 'GET' && p === '/api/agents/commissions') {
       try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const a = await prisma.agentProfile.findUnique({ where: { userId: u.id } }); if (!a) return res.status(404).json({ error: 'Agent not found' }); const c = await prisma.agentCommission.findMany({ where: { agentId: a.id }, orderBy: { createdAt: 'desc' } }); return res.json(c); }
@@ -613,28 +629,34 @@ app.use('/api', async (req, res) => {
         const id = p.split('/')[4];
         const d = await prisma.deposit.findUnique({ where: { id } });
         if (!d) return res.status(404).json({ error: 'Deposit not found' });
+        if (d.status === 'SUCCESS') return res.status(400).json({ error: 'Deposit already approved' });
         await prisma.$transaction(async (tx) => {
           await tx.deposit.update({ where: { id }, data: { status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } });
           await tx.wallet.update({ where: { userId: d.userId }, data: { main: { increment: d.amount } } });
           await tx.transaction.create({ data: { userId: d.userId, type: 'DEPOSIT', amount: d.amount, method: d.method, reference: d.reference, status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } });
-          // Referral commission: check if depositing user has a referrer
-          const depositor = await tx.user.findUnique({ where: { id: d.userId }, select: { referrerAgentId: true, invitedBy: true } });
-          if (depositor?.referrerAgentId) {
+          // Referral commission: only on FIRST qualified deposit (>= 100) and ONLY ONCE
+          const depositor = await tx.user.findUnique({ where: { id: d.userId }, select: { referrerAgentId: true, invitedBy: true, fullName: true } });
+          if (depositor?.referrerAgentId && d.amount >= 100) {
             const settings = await tx.platformSettings.findFirst();
             const rate = (settings?.referralCommissionPercent || 30) / 100;
-            const commission = d.amount * rate;
             const agent = await tx.agentProfile.findUnique({ where: { id: depositor.referrerAgentId } });
             if (agent) {
-              await tx.agentCommission.create({ data: { agentId: agent.id, referredUserId: d.userId, referredName: d.user?.fullName || 'User', depositAmount: d.amount, commissionRate: rate, commissionAmount: commission } });
-              await tx.agentProfile.update({ where: { id: agent.id }, data: { totalCommission: { increment: commission }, qualifiedDeposits: { increment: 1 }, availableBalance: { increment: commission } } });
-              await tx.agentReferral.updateMany({ where: { agentId: agent.id, userId: d.userId }, data: { status: 'COMMISSION_PAID', firstDeposit: d.amount, commission } });
-              await tx.wallet.update({ where: { userId: agent.userId }, data: { main: { increment: commission } } });
-              await tx.transaction.create({ data: { userId: agent.userId, type: 'REFERRAL_COMMISSION', amount: commission, method: 'system', reference: 'COMM-' + Date.now(), status: 'SUCCESS' } });
+              // Check if commission was ALREADY paid for this referred user (prevent duplicates)
+              const existingCommission = await tx.agentCommission.findFirst({ where: { agentId: agent.id, referredUserId: d.userId } });
+              const existingReferral = await tx.agentReferral.findFirst({ where: { agentId: agent.id, userId: d.userId } });
+              if (!existingCommission && (!existingReferral || existingReferral.status === 'WAITING_DEPOSIT')) {
+                const commission = Math.round(d.amount * rate);
+                await tx.agentCommission.create({ data: { agentId: agent.id, referredUserId: d.userId, referredName: depositor.fullName || 'User', depositAmount: d.amount, commissionRate: rate, commissionAmount: commission } });
+                await tx.agentProfile.update({ where: { id: agent.id }, data: { totalCommission: { increment: commission }, qualifiedDeposits: { increment: 1 }, availableBalance: { increment: commission } } });
+                await tx.agentReferral.updateMany({ where: { agentId: agent.id, userId: d.userId }, data: { status: 'COMMISSION_PAID', firstDeposit: d.amount, commission } });
+                await tx.wallet.update({ where: { userId: agent.userId }, data: { main: { increment: commission } } });
+                await tx.transaction.create({ data: { userId: agent.userId, type: 'REFERRAL_COMMISSION', amount: commission, method: 'system', reference: 'COMM-' + Date.now(), status: 'SUCCESS' } });
+              }
             }
           }
         });
         return res.json({ success: true });
-      } catch { return res.status(500).json({ error: 'Failed' }); }
+      } catch (e) { console.error('Approve deposit error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
     if (m === 'PUT' && p.includes('/api/admin/deposits/') && p.endsWith('/reject')) {
       try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { reason } = body; const d = await prisma.deposit.update({ where: { id }, data: { status: 'FAILED', rejectionReason: reason || 'Rejected', approvedBy: u.email } }); return res.json(d); }
@@ -705,12 +727,12 @@ app.use('/api', async (req, res) => {
         const agents = await prisma.agentProfile.findMany({ orderBy: { id: 'desc' }, include: { user: { select: { fullName: true, email: true, displayId: true } }, referrals: true, commissions: true } });
         const enriched = await Promise.all(agents.map(async (a) => {
           const referredUserIds = a.referrals.map(r => r.userId);
-          const users = referredUserIds.length ? await prisma.user.findMany({ where: { id: { in: referredUserIds } }, select: { id: true, verificationStatus: true, status: true, deposits: { where: { status: 'SUCCESS' }, select: { amount: true } }, withdrawals: { where: { status: 'SUCCESS' }, select: { amount: true } } } }) : [];
+          const users = referredUserIds.length ? await prisma.user.findMany({ where: { id: { in: referredUserIds } }, select: { id: true, verificationStatus: true, deposits: { where: { status: 'SUCCESS' }, select: { amount: true } }, withdrawals: { where: { status: 'SUCCESS' }, select: { amount: true } } } }) : [];
           const totalDeposits = users.reduce((sum, usr) => sum + usr.deposits.reduce((s, d) => s + d.amount, 0), 0);
           const totalWithdrawals = users.reduce((sum, usr) => sum + usr.withdrawals.reduce((s, w) => s + w.amount, 0), 0);
           const verifiedUsers = users.filter(usr => usr.verificationStatus === 'APPROVED').length;
-          const activeUsers = users.filter(usr => usr.status === 'active').length;
-          const inactiveUsers = users.filter(usr => usr.status !== 'active').length;
+          const activeUsers = users.filter(usr => usr.deposits.reduce((s, d) => s + d.amount, 0) >= 100).length;
+          const inactiveUsers = users.filter(usr => usr.deposits.reduce((s, d) => s + d.amount, 0) < 100).length;
           const usersWithDeposit = users.filter(usr => usr.deposits.length > 0).length;
           const usersWithoutDeposit = users.length - usersWithDeposit;
           const totalCommission = a.commissions.reduce((sum, c) => sum + c.commissionAmount, 0);

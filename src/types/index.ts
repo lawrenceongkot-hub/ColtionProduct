@@ -212,6 +212,8 @@ export interface AgentReferral {
   firstDeposit: number | null;
   commission: number | null;
   status: 'waiting_deposit' | 'commission_paid';
+  totalApprovedDeposits?: number;
+  displayStatus?: 'waiting_deposit' | 'qualified';
 }
 
 export interface AgentCommission {

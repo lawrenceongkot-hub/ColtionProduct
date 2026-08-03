@@ -19,12 +19,22 @@ export interface DepositRecord {
   user?: { fullName?: string; email?: string };
 }
 
+function normalizeStatus(status: string | undefined | null): string {
+  if (!status) return '';
+  return status.toLowerCase();
+}
+
+function normalizeDeposit(d: any): any {
+  if (!d) return d;
+  return { ...d, status: normalizeStatus(d.status) };
+}
+
 export const depositService = {
   async getDeposits(): Promise<any[]> {
     try {
       const data = await adminApi.getDeposits();
       // ALWAYS return an array - never undefined/null/object
-      return Array.isArray(data) ? data : [];
+      return (Array.isArray(data) ? data : []).map(normalizeDeposit);
     } catch {
       return [];
     }
