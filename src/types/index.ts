@@ -116,6 +116,14 @@ export interface ReferralStats {
   referralCount: number;
   totalEarnings: number;
   recentReferrals: ReferralEntry[];
+  totalReferrals?: number;
+  verifiedReferrals?: number;
+  activeReferrals?: number;
+  depositedReferrals?: number;
+  totalDepositAmount?: number;
+  totalCommissionEarned?: number;
+  pendingCommission?: number;
+  paidCommission?: number;
 }
 
 export interface ReferralEntry {
@@ -124,6 +132,14 @@ export interface ReferralEntry {
   email: string;
   joinedDate: string;
   status: 'active' | 'inactive';
+  displayId?: string;
+  referredUserId?: string;
+  verificationStatus?: string;
+  isVerified?: boolean;
+  isActive?: boolean;
+  hasDeposit?: boolean;
+  totalDeposit?: number;
+  totalWithdrawal?: number;
 }
 
 export interface Transaction {

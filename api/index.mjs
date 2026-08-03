@@ -103,7 +103,8 @@ app.use('/api', async (req, res) => {
         }
         if (!bonusBlocked) {
           await tx.welcomeBonusClaim.create({ data: { userId: u.id, amount: 100, ipAddress: ip, deviceFingerprint: fp, status: 'CLAIMED' } });
-          await tx.wallet.update({ where: { userId: u.id }, data: { main: { increment: 100 } } });
+          // Business rule: Registration Bonus goes to SemWallet, NOT MainWallet
+          await tx.wallet.update({ where: { userId: u.id }, data: { semWallet: { increment: 100 } } });
           await tx.transaction.create({ data: { userId: u.id, type: 'WELCOME_BONUS', amount: 100, method: 'system', reference: 'BONUS-' + Date.now(), status: 'SUCCESS', bonusApplied: 100, bonusType: 'WELCOME_BONUS' } });
         }
         const at = jwt.sign({ id: u.id, email: u.email }, process.env.JWT_SECRET || 'fallback', { expiresIn: '15m' });
@@ -241,8 +242,64 @@ app.use('/api', async (req, res) => {
 
     // ============ REFERRALS ============
     if (m === 'GET' && p === '/api/referrals') {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const user = await prisma.user.findUnique({ where: { id: u.id }, select: { invitationCode: true, referralCount: true, totalReferralEarnings: true } }); if (!user) return res.status(404).json({ error: 'User not found' }); const r = await prisma.referral.findMany({ where: { inviterCode: user.invitationCode }, orderBy: { joinedDate: 'desc' } }); return res.json({ referralCount: user.referralCount, totalEarnings: user.totalReferralEarnings, recentReferrals: r.map(x => ({ id: x.id, fullName: x.referredName, email: x.referredEmail, joinedDate: x.joinedDate, status: x.status })) }); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const user = await prisma.user.findUnique({ where: { id: u.id }, select: { invitationCode: true, referralCount: true, totalReferralEarnings: true } });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        // Single source of truth: Referral table joined with referred users for full stats
+        const referrals = await prisma.referral.findMany({
+          where: { inviterCode: user.invitationCode },
+          orderBy: { joinedDate: 'desc' },
+          include: { referredUser: { select: { id: true, displayId: true, fullName: true, email: true, verificationStatus: true, status: true, createdAt: true, deposits: { where: { status: 'SUCCESS' }, select: { amount: true } }, withdrawals: { where: { status: 'SUCCESS' }, select: { amount: true } } } } },
+        });
+        // Enrich each referral with real data
+        const enriched = referrals.map(r => {
+          const totalDeposit = r.referredUser.deposits.reduce((s, d) => s + d.amount, 0);
+          const totalWithdrawal = r.referredUser.withdrawals.reduce((s, w) => s + w.amount, 0);
+          const hasDeposit = totalDeposit > 0;
+          const isVerified = r.referredUser.verificationStatus === 'APPROVED';
+          const isActive = r.referredUser.status === 'active';
+          return {
+            id: r.id,
+            referredUserId: r.referredUserId,
+            displayId: r.referredUser.displayId,
+            fullName: r.referredUser.fullName,
+            email: r.referredUser.email,
+            joinedDate: r.joinedDate,
+            status: r.status,
+            verificationStatus: r.referredUser.verificationStatus || 'NONE',
+            isVerified,
+            isActive,
+            hasDeposit,
+            totalDeposit,
+            totalWithdrawal,
+          };
+        });
+        const totalReferrals = enriched.length;
+        const verifiedReferrals = enriched.filter(r => r.isVerified).length;
+        const activeReferrals = enriched.filter(r => r.isActive).length;
+        const depositedReferrals = enriched.filter(r => r.hasDeposit).length;
+        const totalDepositAmount = enriched.reduce((s, r) => s + r.totalDeposit, 0);
+        // Commission records for this user's referrals (via AgentReferral if they have an agent profile)
+        const agentProfile = await prisma.agentProfile.findUnique({ where: { userId: u.id }, include: { commissions: true, referrals: { where: { commission: { not: null } } } } });
+        const commissions = agentProfile?.commissions || [];
+        const totalCommissionEarned = commissions.reduce((s, c) => s + c.commissionAmount, 0);
+        const pendingCommission = (agentProfile?.referrals || []).filter(r => r.status === 'WAITING_DEPOSIT' && r.firstDeposit).reduce((s, r) => s + (r.commission || 0), 0);
+        const paidCommission = commissions.reduce((s, c) => s + c.commissionAmount, 0);
+        const stats = {
+          totalReferrals,
+          verifiedReferrals,
+          activeReferrals,
+          depositedReferrals,
+          totalDepositAmount,
+          totalCommissionEarned,
+          pendingCommission,
+          paidCommission,
+          referralCount: user.referralCount,
+          totalEarnings: user.totalReferralEarnings,
+        };
+        return res.json({ stats, recentReferrals: enriched });
+      } catch (e) { console.error('Referrals error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
 
     // ============ USER PROFILE ============

@@ -110,14 +110,12 @@ export const InviteSection: React.FC = React.memo(() => {
 
   if (!user) return null;
 
-  // Derive statistics from real backend data
-  const totalInvited = agentReferrals.length;
-  const activeReferrals = agentReferrals.filter(r => r.status === 'commission_paid').length;
-  const totalDeposits = agentReferrals.reduce((sum, r) => sum + (r.firstDeposit || 0), 0);
-  const totalEarned = agentCommissions.reduce((sum, c) => sum + c.commissionAmount, 0);
-  const pendingCommission = agentReferrals
-    .filter(r => r.status === 'waiting_deposit' && r.firstDeposit)
-    .reduce((sum, r) => sum + ((r.firstDeposit || 0) * commissionRate / 100), 0);
+  // Statistics come from backend /api/referrals (single source of truth)
+  const totalInvited = stats.totalReferrals ?? stats.referralCount ?? 0;
+  const activeReferrals = stats.activeReferrals ?? 0;
+  const totalDeposits = stats.totalDepositAmount ?? 0;
+  const totalEarned = stats.totalCommissionEarned ?? 0;
+  const pendingCommission = stats.pendingCommission ?? 0;
 
   return (
     <div
