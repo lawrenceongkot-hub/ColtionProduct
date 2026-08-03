@@ -246,20 +246,23 @@ app.use('/api', async (req, res) => {
         const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
         const user = await prisma.user.findUnique({ where: { id: u.id }, select: { invitationCode: true, referralCount: true, totalReferralEarnings: true } });
         if (!user) return res.status(404).json({ error: 'User not found' });
-        // Single source of truth: Referral table joined with referred users for full stats
-        const referrals = await prisma.referral.findMany({
-          where: { inviterCode: user.invitationCode },
-          orderBy: { joinedDate: 'desc' },
-          include: { referredUser: { select: { id: true, displayId: true, fullName: true, email: true, verificationStatus: true, status: true, createdAt: true, deposits: { where: { status: 'SUCCESS' }, select: { amount: true } }, withdrawals: { where: { status: 'SUCCESS' }, select: { amount: true } } } } },
-        });
-        // Enrich each referral with real data
-        const enriched = referrals.map(r => {
-          const totalDeposit = r.referredUser.deposits.reduce((s, d) => s + d.amount, 0);
-          const totalWithdrawal = r.referredUser.withdrawals.reduce((s, w) => s + w.amount, 0);
-          const hasDeposit = totalDeposit > 0;
-          const isVerified = r.referredUser.verificationStatus === 'APPROVED';
-          const isActive = r.referredUser.status === 'active';
-          return {
+        // Query BOTH sources: Referral table AND users with invitedBy == current user's invitation code
+        const [referralRows, invitedUsers] = await Promise.all([
+          prisma.referral.findMany({
+            where: { inviterCode: user.invitationCode },
+            orderBy: { joinedDate: 'desc' },
+            include: { referredUser: { select: { id: true, displayId: true, fullName: true, email: true, verificationStatus: true, status: true, createdAt: true, deposits: { where: { status: 'SUCCESS' }, select: { amount: true } }, withdrawals: { where: { status: 'SUCCESS' }, select: { amount: true } } } } },
+          }),
+          prisma.user.findMany({
+            where: { invitedBy: user.invitationCode },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, displayId: true, fullName: true, email: true, verificationStatus: true, status: true, createdAt: true, deposits: { where: { status: 'SUCCESS' }, select: { amount: true } }, withdrawals: { where: { status: 'SUCCESS' }, select: { amount: true } } },
+          }),
+        ]);
+        // Merge both sources, deduplicate by referredUserId
+        const merged = new Map();
+        referralRows.forEach(r => {
+          merged.set(r.referredUserId, {
             id: r.id,
             referredUserId: r.referredUserId,
             displayId: r.referredUser.displayId,
@@ -268,13 +271,33 @@ app.use('/api', async (req, res) => {
             joinedDate: r.joinedDate,
             status: r.status,
             verificationStatus: r.referredUser.verificationStatus || 'NONE',
-            isVerified,
-            isActive,
-            hasDeposit,
-            totalDeposit,
-            totalWithdrawal,
-          };
+            isVerified: r.referredUser.verificationStatus === 'APPROVED',
+            isActive: r.referredUser.status === 'active',
+            hasDeposit: r.referredUser.deposits.reduce((s, d) => s + d.amount, 0) > 0,
+            totalDeposit: r.referredUser.deposits.reduce((s, d) => s + d.amount, 0),
+            totalWithdrawal: r.referredUser.withdrawals.reduce((s, w) => s + w.amount, 0),
+          });
         });
+        invitedUsers.forEach(ru => {
+          if (!merged.has(ru.id)) {
+            merged.set(ru.id, {
+              id: ru.id,
+              referredUserId: ru.id,
+              displayId: ru.displayId,
+              fullName: ru.fullName,
+              email: ru.email,
+              joinedDate: ru.createdAt,
+              status: 'active',
+              verificationStatus: ru.verificationStatus || 'NONE',
+              isVerified: ru.verificationStatus === 'APPROVED',
+              isActive: ru.status === 'active',
+              hasDeposit: ru.deposits.reduce((s, d) => s + d.amount, 0) > 0,
+              totalDeposit: ru.deposits.reduce((s, d) => s + d.amount, 0),
+              totalWithdrawal: ru.withdrawals.reduce((s, w) => s + w.amount, 0),
+            });
+          }
+        });
+        const enriched = Array.from(merged.values()).sort((a, b) => new Date(b.joinedDate) - new Date(a.joinedDate));
         const totalReferrals = enriched.length;
         const verifiedReferrals = enriched.filter(r => r.isVerified).length;
         const activeReferrals = enriched.filter(r => r.isActive).length;
