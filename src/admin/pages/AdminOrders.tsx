@@ -188,7 +188,7 @@ export const AdminOrders: React.FC = React.memo(() => {
             {paginated.map(o => (
               <tr key={o.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.4)', fontFamily: 'monospace', fontSize: '11px' }}>{o.id.slice(0, 10)}...</td>
-                <td style={{ padding: '10px 12px', color: '#FFFFFF', fontWeight: 500 }}>{o.userFullName}</td>
+                <td style={{ padding: '10px 12px', color: '#FFFFFF', fontWeight: 500 }}>{o.userFullName || o.user?.fullName || 'N/A'}</td>
                 <td style={{ padding: '10px 12px', color: '#F59E0B', fontWeight: 600 }}>VIP {o.vipLevel}</td>
                 <td style={{ padding: '10px 12px', color: '#E5E7EB', fontWeight: 600 }}>₱{o.buyAmount.toLocaleString()}</td>
                 <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.6)' }}>{o.duration}d</td>
@@ -235,7 +235,7 @@ export const AdminOrders: React.FC = React.memo(() => {
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0066FF" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg> User Information
               </h3>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px' }}>
-                {[{ label: 'User ID', value: selectedOrder.userId }, { label: 'Full Name', value: selectedOrder.userFullName }, { label: 'Email', value: selectedOrder.userEmail }, { label: 'Mobile', value: selectedOrder.userPhone }].map((f, i) => (
+                {[{ label: 'User ID', value: selectedOrder.userId }, { label: 'Full Name', value: selectedOrder.userFullName || selectedOrder.user?.fullName || '-' }, { label: 'Email', value: selectedOrder.userEmail || selectedOrder.user?.email || '-' }, { label: 'Mobile', value: selectedOrder.userPhone || '-' }].map((f, i) => (
                   <div key={i} style={{ padding: '10px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
                     <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', fontWeight: 500, marginBottom: '4px' }}>{f.label}</div>
                     <div style={{ fontSize: '12px', color: '#E5E7EB', fontWeight: 500 }}>{f.value || '-'}</div>

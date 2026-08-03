@@ -13,6 +13,7 @@ interface UserData {
   phone: string;
   status: string;
   kycStatus: string;
+  verificationStatus: string;
   registrationDate: string;
   lastLogin: string;
   lastLoginIp: string;
@@ -93,7 +94,7 @@ export const AdminUsers: React.FC = React.memo(() => {
       else if (sortField === 'fullName') cmp = a.fullName.localeCompare(b.fullName);
       else if (sortField === 'email') cmp = a.email.localeCompare(b.email);
       else if (sortField === 'status') cmp = (a.status || '').localeCompare(b.status || '');
-      else if (sortField === 'kycStatus') cmp = (a.kycStatus || '').localeCompare(b.kycStatus || '');
+      else if (sortField === 'kycStatus') cmp = (a.verificationStatus || a.kycStatus || '').localeCompare(b.verificationStatus || b.kycStatus || '');
       else if (sortField === 'displayId') cmp = (a.displayId || '').localeCompare(b.displayId || '');
       return sortDir === 'asc' ? cmp : -cmp;
     });
@@ -369,10 +370,10 @@ export const AdminUsers: React.FC = React.memo(() => {
                 <td style={{ padding: '10px 12px' }}>
                   <span style={{
                     padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 600,
-                    background: `${kycColor(u.kycStatus)}15`, color: kycColor(u.kycStatus),
-                    border: `1px solid ${kycColor(u.kycStatus)}22`,
+                    background: `${kycColor(u.verificationStatus || u.kycStatus)}15`, color: kycColor(u.verificationStatus || u.kycStatus),
+                    border: `1px solid ${kycColor(u.verificationStatus || u.kycStatus)}22`,
                   }}>
-                    {u.kycStatus === 'NONE' ? 'Unverified' : u.kycStatus}
+                    {(u.verificationStatus || u.kycStatus) === 'NONE' ? 'Unverified' : (u.verificationStatus || u.kycStatus)}
                   </span>
                 </td>
                 <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.4)', fontSize: '11px' }}>

@@ -273,7 +273,7 @@ export const AdminDeposits: React.FC = React.memo(() => {
                   {d.reference}
                 </td>
                 <td style={{ padding: '10px 12px', color: '#FFFFFF', fontWeight: 500 }}>
-                  {d.userFullName}
+                  {d.userFullName || d.user?.fullName || 'N/A'}
                 </td>
                 <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.6)' }}>
                   {d.method}
@@ -361,9 +361,9 @@ export const AdminDeposits: React.FC = React.memo(() => {
                     { label: 'Transaction ID', value: selectedDeposit.id },
                     { label: 'Reference Number', value: selectedDeposit.reference },
                     { label: 'User ID', value: selectedDeposit.userId },
-                    { label: 'Full Name', value: selectedDeposit.userFullName },
-                    { label: 'Email', value: selectedDeposit.userEmail },
-                    { label: 'Mobile Number', value: selectedDeposit.userPhone },
+                    { label: 'Full Name', value: selectedDeposit.userFullName || selectedDeposit.user?.fullName || '-' },
+                    { label: 'Email', value: selectedDeposit.userEmail || selectedDeposit.user?.email || '-' },
+                    { label: 'Mobile Number', value: selectedDeposit.userPhone || '-' },
                   ].map((field, i) => (
                     <div key={i} style={{ padding: '10px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
                       <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', fontWeight: 500, marginBottom: '4px' }}>{field.label}</div>

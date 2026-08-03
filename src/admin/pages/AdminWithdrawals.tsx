@@ -251,11 +251,11 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.4)', fontFamily: 'monospace', fontSize: '11px' }}>{w.id.slice(0, 10)}...</td>
                 <td style={{ padding: '10px 12px', color: '#D1D5DB', fontFamily: 'monospace', fontSize: '11px' }}>{w.reference}</td>
-                <td style={{ padding: '10px 12px', color: '#FFFFFF', fontWeight: 500 }}>{w.userFullName}</td>
+                <td style={{ padding: '10px 12px', color: '#FFFFFF', fontWeight: 500 }}>{w.userFullName || w.user?.fullName || 'N/A'}</td>
                 <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.6)' }}>{w.method}</td>
                 <td style={{ padding: '10px 12px', color: '#E5E7EB', fontWeight: 600 }}>₱{w.amount.toLocaleString()}</td>
-                <td style={{ padding: '10px 12px', color: '#EF4444', fontWeight: 500 }}>₱{w.fee.toLocaleString()}</td>
-                <td style={{ padding: '10px 12px', color: '#10B981', fontWeight: 600 }}>₱{w.netAmount.toLocaleString()}</td>
+                <td style={{ padding: '10px 12px', color: '#EF4444', fontWeight: 500 }}>₱{(w.fee || 0).toLocaleString()}</td>
+                <td style={{ padding: '10px 12px', color: '#10B981', fontWeight: 600 }}>₱{(w.netAmount || w.amount || 0).toLocaleString()}</td>
                 <td style={{ padding: '10px 12px' }}>
                   <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, background: `${statusColor(w.status)}15`, color: statusColor(w.status), border: `1px solid ${statusColor(w.status)}22` }}>
                     {w.status}
@@ -265,7 +265,7 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
                   {new Date(w.createdAt).toLocaleDateString()}
                 </td>
                 <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.4)', fontSize: '10px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {w.accountNumber}
+                  {w.accountNumber || w.walletNumber || '—'}
                 </td>
                 <td style={{ padding: '10px 12px' }}>
                   <button onClick={() => openDetails(w)}

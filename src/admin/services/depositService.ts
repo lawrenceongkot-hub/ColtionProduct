@@ -16,6 +16,7 @@ export interface DepositRecord {
   userFullName: string;
   userEmail: string;
   userPhone: string;
+  user?: { fullName?: string; email?: string };
 }
 
 export const depositService = {

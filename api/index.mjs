@@ -393,6 +393,54 @@ app.use('/api', async (req, res) => {
       try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.replace('/api/admin/users/', ''); await prisma.user.delete({ where: { id } }); return res.json({ success: true }); }
       catch { return res.status(500).json({ error: 'Failed' }); }
     }
+    if (m === 'GET' && p.startsWith('/api/admin/users/') && p.endsWith('/wallet')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const w = await prisma.wallet.findUnique({ where: { userId: id } }); return res.json(w || { main: 0, semWallet: 0, ongoing: 0 }); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'GET' && p.startsWith('/api/admin/users/') && p.endsWith('/audit')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const logs = await prisma.auditLog.findMany({ where: { userId: id }, orderBy: { timestamp: 'desc' }, take: 50 }); return res.json(logs); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/wallet/main/add')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { amount } = body; if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' }); const w = await prisma.wallet.update({ where: { userId: id }, data: { main: { increment: parseFloat(amount) } } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Add Main Wallet', amount: parseFloat(amount), timestamp: new Date() } }); return res.json(w); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/wallet/main/deduct')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { amount } = body; if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' }); const w = await prisma.wallet.update({ where: { userId: id }, data: { main: { decrement: parseFloat(amount) } } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Deduct Main Wallet', amount: parseFloat(amount), timestamp: new Date() } }); return res.json(w); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/wallet/sem/add')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { amount } = body; if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' }); const w = await prisma.wallet.update({ where: { userId: id }, data: { semWallet: { increment: parseFloat(amount) } } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Add SemWallet', amount: parseFloat(amount), timestamp: new Date() } }); return res.json(w); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/wallet/sem/deduct')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { amount } = body; if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' }); const w = await prisma.wallet.update({ where: { userId: id }, data: { semWallet: { decrement: parseFloat(amount) } } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Deduct SemWallet', amount: parseFloat(amount), timestamp: new Date() } }); return res.json(w); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/ban')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const user = await prisma.user.update({ where: { id }, data: { status: 'banned' } }); await prisma.userSession.deleteMany({ where: { userId: id } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Account Banned', timestamp: new Date() } }); return res.json(user); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/unban')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const user = await prisma.user.update({ where: { id }, data: { status: 'active' } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Account Unbanned', timestamp: new Date() } }); return res.json(user); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/suspend')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const user = await prisma.user.update({ where: { id }, data: { status: 'suspended' } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Account Suspended', timestamp: new Date() } }); return res.json(user); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/activate')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const user = await prisma.user.update({ where: { id }, data: { status: 'active' } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Account Activated', timestamp: new Date() } }); return res.json(user); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/force-logout')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; await prisma.userSession.deleteMany({ where: { userId: id } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Force Logout', timestamp: new Date() } }); return res.json({ success: true }); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
+    if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/password')) {
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { newPassword } = body; if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' }); const user = await prisma.user.update({ where: { id }, data: { password: await bcrypt.hash(newPassword, 12) } }); await prisma.userSession.deleteMany({ where: { userId: id } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Password Changed', timestamp: new Date() } }); return res.json(user); }
+      catch { return res.status(500).json({ error: 'Failed' }); }
+    }
 
     if (m === 'GET' && p === '/api/admin/deposits') {
       try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const d = await prisma.deposit.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(d); }
@@ -446,7 +494,12 @@ app.use('/api', async (req, res) => {
         const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
         const id = p.split('/')[4];
         const action = p.endsWith('/approve') ? 'APPROVED' : 'REJECTED';
-        await prisma.user.update({ where: { id }, data: action === 'APPROVED' ? { verificationStatus: 'APPROVED', verifiedAt: new Date() } : { verificationStatus: 'REJECTED' } });
+        const target = await prisma.user.findUnique({ where: { id } });
+        if (!target) return res.status(404).json({ error: 'User not found' });
+        await prisma.$transaction(async (tx) => {
+          await tx.user.update({ where: { id }, data: action === 'APPROVED' ? { verificationStatus: 'APPROVED', verifiedAt: new Date() } : { verificationStatus: 'REJECTED' } });
+          await tx.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: action === 'APPROVED' ? 'KYC Approved' : 'KYC Rejected', timestamp: new Date() } });
+        });
         return res.json({ success: true });
       } catch { return res.status(500).json({ error: 'Failed' }); }
     }

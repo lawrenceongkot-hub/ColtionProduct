@@ -25,6 +25,7 @@ export interface WithdrawalRecord {
   userEmail: string;
   userPhone: string;
   userStatus: string;
+  user?: { fullName?: string; email?: string };
 }
 
 export const withdrawalService = {
