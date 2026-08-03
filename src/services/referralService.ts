@@ -14,16 +14,19 @@ export async function getReferralStatsAPI(invitationCode: string): Promise<Refer
   try {
     const data = await apiService.get<any>('/referrals');
     const stats = data.stats || {};
+    // Fallback: derive total from recentReferrals array if stats not present (older backend)
+    const recentReferrals: ReferralEntry[] = data.recentReferrals || [];
+    const totalReferrals = stats.totalReferrals ?? stats.referralCount ?? recentReferrals.length ?? 0;
     return {
-      referralCount: stats.totalReferrals ?? stats.referralCount ?? 0,
-      totalEarnings: stats.totalCommissionEarned ?? stats.totalEarnings ?? 0,
-      recentReferrals: data.recentReferrals || [],
-      totalReferrals: stats.totalReferrals ?? 0,
-      verifiedReferrals: stats.verifiedReferrals ?? 0,
-      activeReferrals: stats.activeReferrals ?? 0,
-      depositedReferrals: stats.depositedReferrals ?? 0,
-      totalDepositAmount: stats.totalDepositAmount ?? 0,
-      totalCommissionEarned: stats.totalCommissionEarned ?? 0,
+      referralCount: totalReferrals,
+      totalEarnings: stats.totalCommissionEarned ?? stats.totalEarnings ?? data.totalEarnings ?? 0,
+      recentReferrals,
+      totalReferrals,
+      verifiedReferrals: stats.verifiedReferrals ?? recentReferrals.filter((r: any) => r.isVerified).length,
+      activeReferrals: stats.activeReferrals ?? recentReferrals.filter((r: any) => r.isActive).length,
+      depositedReferrals: stats.depositedReferrals ?? recentReferrals.filter((r: any) => r.hasDeposit).length,
+      totalDepositAmount: stats.totalDepositAmount ?? recentReferrals.reduce((s: number, r: any) => s + (r.totalDeposit || 0), 0),
+      totalCommissionEarned: stats.totalCommissionEarned ?? stats.totalEarnings ?? 0,
       pendingCommission: stats.pendingCommission ?? 0,
       paidCommission: stats.paidCommission ?? 0,
     };
