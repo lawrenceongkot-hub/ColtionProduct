@@ -61,15 +61,16 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
 
   const handleConfirmDeposit = useCallback(async () => {
     if (!user || !method) return;
+    setCustomError(null);
     setIsProcessing(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
     try {
       const tx = await transactionService.createDeposit(user.id, method, numericAmount);
       setResult({ ref: tx.reference, id: tx.id });
     } catch (e: any) {
       setCustomError(e.message || 'Failed to create deposit');
+    } finally {
+      setIsProcessing(false);
     }
-    setIsProcessing(false);
   }, [user, method, numericAmount]);
 
   const handleSimulateSuccess = useCallback(() => {
@@ -131,6 +132,14 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
                   <div style={{ height: '1px', background: colors.borderDefault }} />
                   <Row label="Total Amount" value={FORMAT_CURRENCY(numericAmount)} highlight />
                 </div>
+                <AnimatePresence mode="wait">
+                  {customError && (
+                    <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
+                      style={{ fontSize: typography.sm, color: colors.error, fontFamily: typography.fontFamily, textAlign: 'center' }}>
+                      {customError}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <Button variant="secondary" size="md" fullWidth onClick={() => setStep('form')}>Cancel</Button>
                   <Button variant="primary" size="md" fullWidth loading={isProcessing} onClick={handleConfirmDeposit}>Confirm Deposit</Button>

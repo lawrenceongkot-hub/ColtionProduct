@@ -22,8 +22,9 @@ export const transactionService = {
         createdAt: new Date().toISOString(),
         completedAt: null,
       };
-    } catch {
-      throw new Error('Failed to create deposit');
+    } catch (e: any) {
+      console.error('createDeposit error:', e?.message || e);
+      throw new Error(e?.message || 'Failed to create deposit');
     }
   },
 

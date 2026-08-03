@@ -113,6 +113,7 @@ export const InviteSection: React.FC = React.memo(() => {
   // Statistics come from backend /api/referrals (single source of truth)
   const totalInvited = stats.totalReferrals ?? stats.referralCount ?? 0;
   const activeReferrals = stats.activeReferrals ?? 0;
+  const depositedReferrals = stats.depositedReferrals ?? 0;
   const totalDeposits = stats.totalDepositAmount ?? 0;
   const totalEarned = stats.totalCommissionEarned ?? 0;
   const pendingCommission = stats.pendingCommission ?? 0;
@@ -392,7 +393,7 @@ export const InviteSection: React.FC = React.memo(() => {
             <div style={{ display: 'grid', gridTemplateColumns: responsive.isMobile ? '1fr 1fr' : 'repeat(3, 1fr)', gap: 'clamp(8px, 1.2vw, 12px)' }}>
               <StatCard label="Total Invited Users" value={totalInvited.toString()} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>} delay={0} />
               <StatCard label="Active Referrals" value={activeReferrals.toString()} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.success} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>} delay={0.05} />
-              <StatCard label="Successful Deposits" value={agentProfile?.qualifiedDeposits?.toString() || '0'} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>} delay={0.1} />
+              <StatCard label="Successful Deposits" value={depositedReferrals.toString()} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>} delay={0.1} />
               <StatCard label="Total Referral Deposits" value={FORMAT_CURRENCY(totalDeposits)} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.warning} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>} delay={0.15} />
               <StatCard label="Pending Commission" value={FORMAT_CURRENCY(pendingCommission)} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.warning} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>} delay={0.2} />
               <StatCard label="Total Commission Earned" value={FORMAT_CURRENCY(totalEarned)} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.success} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>} delay={0.25} />

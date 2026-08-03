@@ -226,8 +226,18 @@ app.use('/api', async (req, res) => {
 
     // ============ DEPOSITS ============
     if (m === 'POST' && p === '/api/deposits') {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { amount, method, walletNumber, proofOfPayment } = body; if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' }); const ref = 'DEP-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase(); const d = await prisma.deposit.create({ data: { userId: u.id, amount: parseFloat(amount), method: method || 'bank_transfer', reference: ref, walletNumber: walletNumber || '', proofOfPayment: proofOfPayment || '', status: 'PENDING' } }); return res.status(201).json(d); }
-      catch (e) { return res.status(500).json({ error: e.message }); }
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const { amount, method, proofOfPayment } = body;
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+        const ref = 'DEP-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+        const d = await prisma.$transaction(async (tx) => {
+          const deposit = await tx.deposit.create({ data: { userId: u.id, amount: parseFloat(amount), method: method || 'bank_transfer', reference: ref, proofOfPayment: proofOfPayment || '', status: 'PENDING' } });
+          await tx.transaction.create({ data: { userId: u.id, type: 'DEPOSIT', amount: parseFloat(amount), method: method || 'bank_transfer', reference: ref, status: 'PENDING' } });
+          return deposit;
+        });
+        return res.status(201).json(d);
+      } catch (e) { console.error('Deposit create error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed to create deposit' }); }
     }
     if (m === 'GET' && p === '/api/deposits') {
       try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const d = await prisma.deposit.findMany({ where: { userId: u.id }, orderBy: { createdAt: 'desc' } }); return res.json(d); }
@@ -271,12 +281,12 @@ app.use('/api', async (req, res) => {
           prisma.referral.findMany({
             where: { inviterCode: user.invitationCode },
             orderBy: { joinedDate: 'desc' },
-            include: { referredUser: { select: { id: true, displayId: true, fullName: true, email: true, verificationStatus: true, status: true, createdAt: true, deposits: { where: { status: 'SUCCESS' }, select: { amount: true } }, withdrawals: { where: { status: 'SUCCESS' }, select: { amount: true } } } } },
+            include: { referredUser: { select: { id: true, displayId: true, fullName: true, email: true, verificationStatus: true, createdAt: true, deposits: { where: { status: 'SUCCESS' }, select: { amount: true } }, withdrawals: { where: { status: 'SUCCESS' }, select: { amount: true } } } } },
           }),
           prisma.user.findMany({
             where: { invitedBy: user.invitationCode },
             orderBy: { createdAt: 'desc' },
-            select: { id: true, displayId: true, fullName: true, email: true, verificationStatus: true, status: true, createdAt: true, deposits: { where: { status: 'SUCCESS' }, select: { amount: true } }, withdrawals: { where: { status: 'SUCCESS' }, select: { amount: true } } },
+            select: { id: true, displayId: true, fullName: true, email: true, verificationStatus: true, createdAt: true, deposits: { where: { status: 'SUCCESS' }, select: { amount: true } }, withdrawals: { where: { status: 'SUCCESS' }, select: { amount: true } } },
           }),
         ]);
         // Merge both sources, deduplicate by referredUserId
