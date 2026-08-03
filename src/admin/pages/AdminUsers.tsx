@@ -271,17 +271,43 @@ export const AdminUsers: React.FC = React.memo(() => {
             {sorted.length} users
           </span>
         </h1>
-        <button onClick={exportCSV} style={{
-          display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px',
-          background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '8px', color: '#D1D5DB', fontSize: '12px', fontWeight: 500, cursor: 'pointer',
-          fontFamily: "'Inter', sans-serif",
-        }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-          Export CSV
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={exportCSV} style={{
+            display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px',
+            background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '8px', color: '#D1D5DB', fontSize: '12px', fontWeight: 500, cursor: 'pointer',
+            fontFamily: "'Inter', sans-serif",
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Export CSV
+          </button>
+          <button onClick={async () => {
+            if (!window.confirm('⚠️ This will DELETE ALL registered accounts and their data. This CANNOT be undone! Continue?')) return;
+            if (!window.confirm('⚠️ FINAL WARNING: All users, deposits, withdrawals, orders, transactions, referrals, and wallets will be permanently deleted. Are you absolutely sure?')) return;
+            setLoading(true);
+            const ok = await userManagementService.wipeAllUsers();
+            setLoading(false);
+            if (ok) {
+              alert('All registered accounts and data have been deleted. Statistics reset.');
+              fetchUsers();
+              window.dispatchEvent(new Event('dashboard:update'));
+            } else {
+              alert('Failed to wipe users. Check server logs.');
+            }
+          }} style={{
+            display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px',
+            background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)',
+            borderRadius: '8px', color: '#EF4444', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+            fontFamily: "'Inter', sans-serif",
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+            Delete All Users
+          </button>
+        </div>
       </div>
 
       {/* Search & Filters */}

@@ -68,6 +68,7 @@ export const adminApi = {
 
   // Users
   getUsers: () => api<any[]>('/users'),
+  wipeAllUsers: () => api<any>('/users/wipe-all', { method: 'DELETE' }),
   deleteUser: (id: string) => api(`/users/${id}`, { method: 'DELETE' }),
   getAuditLog: (userId: string) => api<any[]>(`/users/${userId}/audit`),
   getWalletBalances: (userId: string) => api<any>(`/users/${userId}/wallet`),

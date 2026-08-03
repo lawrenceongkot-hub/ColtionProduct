@@ -20,6 +20,15 @@ export const userManagementService = {
     }
   },
 
+  async wipeAllUsers(): Promise<boolean> {
+    try {
+      await adminApi.wipeAllUsers();
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
   /** Search users by name, email, or phone */
   searchUsers(search: string, users: any[]): any[] {
     if (!search.trim()) return users;

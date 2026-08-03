@@ -414,6 +414,34 @@ app.use('/api', async (req, res) => {
       try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.replace('/api/admin/users/', ''); await prisma.user.delete({ where: { id } }); return res.json({ success: true }); }
       catch { return res.status(500).json({ error: 'Failed' }); }
     }
+    if (m === 'DELETE' && p === '/api/admin/users/wipe-all') {
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        // Delete ALL user-related data in correct FK order, excluding admin users
+        await prisma.$transaction(async (tx) => {
+          await tx.changePasswordToken.deleteMany({});
+          await tx.notification.deleteMany({});
+          await tx.walletLedger.deleteMany({});
+          await tx.auditLog.deleteMany({});
+          await tx.welcomeBonusClaim.deleteMany({});
+          await tx.registrationFingerprint.deleteMany({});
+          await tx.verificationRequest.deleteMany({});
+          await tx.agentCommission.deleteMany({});
+          await tx.agentReferral.deleteMany({});
+          await tx.agentProfile.deleteMany({});
+          await tx.referral.deleteMany({});
+          await tx.eWallet.deleteMany({});
+          await tx.investmentOrder.deleteMany({});
+          await tx.transaction.deleteMany({});
+          await tx.withdrawal.deleteMany({});
+          await tx.deposit.deleteMany({});
+          await tx.userSession.deleteMany({});
+          await tx.wallet.deleteMany({});
+          await tx.user.deleteMany({ where: { role: { not: 'admin' } } });
+        });
+        return res.json({ success: true, message: 'All registered accounts and data wiped. Statistics reset.' });
+      } catch (e) { console.error('Wipe all users error:', e?.message || e); return res.status(500).json({ error: 'Failed to wipe users' }); }
+    }
     if (m === 'GET' && p.startsWith('/api/admin/users/') && p.endsWith('/wallet')) {
       try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const w = await prisma.wallet.findUnique({ where: { userId: id } }); return res.json(w || { main: 0, semWallet: 0, ongoing: 0 }); }
       catch { return res.status(500).json({ error: 'Failed' }); }
