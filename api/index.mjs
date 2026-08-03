@@ -362,7 +362,7 @@ app.use('/api', async (req, res) => {
           prisma.withdrawal.aggregate({ _sum: { amount: true }, where: { status: 'SUCCESS' } }),
           prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }),
           prisma.transaction.count(),
-          prisma.userSession.count({ where: { expiresAt: { gte: new Date() } } }),
+          prisma.userSession.findMany({ where: { expiresAt: { gte: new Date() } }, select: { userId: true }, distinct: ['userId'] }).then(s => s.length),
           prisma.user.count({ where: { createdAt: { gte: today } } }),
           prisma.user.count({ where: { verificationStatus: 'APPROVED' } }),
           prisma.user.count({ where: { verificationStatus: 'PENDING' } }),
@@ -461,7 +461,7 @@ app.use('/api', async (req, res) => {
     }
 
     if (m === 'GET' && p === '/api/admin/agents') {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const a = await prisma.agentProfile.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(a); }
+      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const a = await prisma.agentProfile.findMany({ orderBy: { id: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(a); }
       catch { return res.status(500).json({ error: 'Failed' }); }
     }
     if (m === 'PUT' && p.startsWith('/api/admin/agents/') && (p.endsWith('/suspend') || p.endsWith('/ban') || p.endsWith('/reactivate'))) {
