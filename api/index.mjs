@@ -437,7 +437,7 @@ app.use('/api', async (req, res) => {
           await tx.deposit.deleteMany({});
           await tx.userSession.deleteMany({});
           await tx.wallet.deleteMany({});
-          await tx.user.deleteMany({ where: { role: { not: 'admin' } } });
+          await tx.user.deleteMany({});
         });
         return res.json({ success: true, message: 'All registered accounts and data wiped. Statistics reset.' });
       } catch (e) { console.error('Wipe all users error:', e?.message || e); return res.status(500).json({ error: 'Failed to wipe users' }); }
