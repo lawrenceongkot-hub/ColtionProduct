@@ -256,12 +256,41 @@ app.use('/api', async (req, res) => {
 
     // ============ ORDERS / VIP ============
     if (m === 'POST' && p === '/api/orders/purchase') {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { vipLevel, buyAmount, vipName, vipBadge, dailyRate, dailyProfitPerDay, duration, totalReturn } = body; if (vipLevel === undefined || vipLevel === null || !buyAmount || buyAmount <= 0) { return res.status(400).json({ error: 'Invalid VIP data', received: { vipLevel, buyAmount, vipName, vipBadge } }); } const w = await prisma.wallet.findUnique({ where: { userId: u.id } }); if (!w || w.main < buyAmount) return res.status(400).json({ error: 'Insufficient balance' }); const o = await prisma.$transaction(async (tx) => { await tx.wallet.update({ where: { userId: u.id }, data: { main: { decrement: buyAmount }, ongoing: { increment: buyAmount } } }); return tx.investmentOrder.create({ data: { userId: u.id, vipLevel: parseInt(vipLevel), vipName: vipName || '', vipBadge: vipBadge || '', buyAmount: parseFloat(buyAmount), dailyRate: dailyRate || 0, dailyProfitPerDay: dailyProfitPerDay || 0, duration: duration || 30, totalReturn: totalReturn || 0, status: 'ACTIVE', purchaseDate: new Date(), completedDays: 0, currentProfit: 0 } }); }); return res.status(201).json(o); }
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { vipLevel, buyAmount, vipName, vipBadge, dailyRate, dailyProfitPerDay, duration, totalReturn } = body; if (vipLevel === undefined || vipLevel === null || !buyAmount || buyAmount <= 0) { return res.status(400).json({ error: 'Invalid VIP data', received: { vipLevel, buyAmount, vipName, vipBadge } }); } const w = await prisma.wallet.findUnique({ where: { userId: u.id } }); if (!w || w.semWallet < buyAmount) return res.status(400).json({ error: 'Insufficient SemWallet balance' }); const o = await prisma.$transaction(async (tx) => { await tx.wallet.update({ where: { userId: u.id }, data: { semWallet: { decrement: buyAmount } } }); return tx.investmentOrder.create({ data: { userId: u.id, vipLevel: parseInt(vipLevel), vipName: vipName || '', vipBadge: vipBadge || '', buyAmount: parseFloat(buyAmount), dailyRate: dailyRate || 0, dailyProfitPerDay: dailyProfitPerDay || 0, duration: duration || 30, totalReturn: totalReturn || 0, status: 'ACTIVE', purchaseDate: new Date(), completedDays: 0, currentProfit: 0 } }); }); return res.status(201).json(o); }
       catch (e) { return res.status(500).json({ error: e.message }); }
     }
     if (m === 'GET' && p === '/api/orders') {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const o = await prisma.investmentOrder.findMany({ where: { userId: u.id }, orderBy: { purchaseDate: 'desc' } }); return res.json(o); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        // Lazy daily-profit processing: for every ACTIVE order, credit daily profit to Ongoing wallet
+        await prisma.$transaction(async (tx) => {
+          const activeOrders = await tx.investmentOrder.findMany({ where: { userId: u.id, status: 'ACTIVE' } });
+          const now = new Date();
+          for (const order of activeOrders) {
+            const start = order.lastProfitDate || order.purchaseDate;
+            const daysElapsed = Math.floor((now.getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24));
+            if (daysElapsed > 0) {
+              const profitDays = Math.min(daysElapsed, order.duration - order.completedDays);
+              if (profitDays > 0) {
+                const profitAmount = profitDays * order.dailyProfitPerDay;
+                const newCompletedDays = order.completedDays + profitDays;
+                await tx.wallet.update({ where: { userId: u.id }, data: { ongoing: { increment: profitAmount } } });
+                await tx.investmentOrder.update({ where: { id: order.id }, data: { completedDays: newCompletedDays, currentProfit: order.currentProfit + profitAmount, lastProfitDate: now } });
+                await tx.transaction.create({ data: { userId: u.id, type: 'DAILY_PROFIT', amount: profitAmount, method: 'system', reference: 'PROFIT-' + order.id.slice(-8) + '-' + Date.now(), status: 'SUCCESS' } });
+              }
+            }
+            // If duration reached, transfer principal + accumulated profit to MainWallet, mark COMPLETED
+            if (order.completedDays + Math.max(daysElapsed, 0) >= order.duration || order.duration === 0) {
+              const totalReturn = order.totalReturn || (order.buyAmount + order.currentProfit + Math.max(daysElapsed, 0) * order.dailyProfitPerDay);
+              await tx.wallet.update({ where: { userId: u.id }, data: { main: { increment: totalReturn }, ongoing: { decrement: Math.min(order.currentProfit + order.buyAmount, totalReturn) } } });
+              await tx.investmentOrder.update({ where: { id: order.id }, data: { status: 'COMPLETED', completedDays: order.duration, currentProfit: totalReturn - order.buyAmount, lastProfitDate: now } });
+              await tx.transaction.create({ data: { userId: u.id, type: 'VIP_MATURITY_TRANSFER', amount: totalReturn, method: 'system', reference: 'MATURE-' + order.id.slice(-8) + '-' + Date.now(), status: 'SUCCESS', completedAt: now } });
+            }
+          }
+        });
+        const o = await prisma.investmentOrder.findMany({ where: { userId: u.id }, orderBy: { purchaseDate: 'desc' } });
+        return res.json(o);
+      } catch (e) { console.error('Get orders error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
 
     // ============ TRANSACTIONS ============
@@ -438,12 +467,26 @@ app.use('/api', async (req, res) => {
 
     // ============ EWALLETS ============
     if (m === 'GET' && p === '/api/ewallets') {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const e = await prisma.eWallet.findMany({ where: { userId: u.id } }); return res.json(e); }
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const e = await prisma.eWallet.findMany({ where: { userId: u.id }, select: { id: true, userId: true, provider: true, walletNumber: true } }); return res.json(e); }
       catch { return res.status(500).json({ error: 'Failed' }); }
     }
     if (m === 'POST' && p === '/api/ewallets') {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { provider, walletNumber, withdrawalPassword } = body; if (!provider || !walletNumber) return res.status(400).json({ error: 'Required' }); const e = await prisma.eWallet.create({ data: { userId: u.id, provider, walletNumber, withdrawalPassword: withdrawalPassword || '' } }); return res.status(201).json(e); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { provider, walletNumber, withdrawalPassword } = body; if (!provider || !walletNumber) return res.status(400).json({ error: 'Required' }); if (!withdrawalPassword) return res.status(400).json({ error: 'Withdrawal password is required' }); const hashed = await bcrypt.hash(String(withdrawalPassword), 12); const e = await prisma.eWallet.create({ data: { userId: u.id, provider, walletNumber, withdrawalPassword: hashed } }); return res.status(201).json({ id: e.id, userId: e.userId, provider: e.provider, walletNumber: e.walletNumber }); }
+      catch (e) { console.error('Add ewallet error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
+    }
+    if (m === 'POST' && p === '/api/ewallets/verify-password') {
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const { password } = body;
+        if (!password) return res.status(400).json({ error: 'Password required' });
+        const wallets = await prisma.eWallet.findMany({ where: { userId: u.id } });
+        if (!wallets || wallets.length === 0) return res.json({ valid: true, hasPassword: false });
+        let valid = false;
+        for (const w of wallets) {
+          if (await bcrypt.compare(String(password), w.withdrawalPassword)) { valid = true; break; }
+        }
+        return res.json({ valid, hasPassword: true });
+      } catch (e) { console.error('Verify password error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
     if (m === 'DELETE' && p.startsWith('/api/ewallets/')) {
       try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const id = p.replace('/api/ewallets/', ''); await prisma.eWallet.deleteMany({ where: { id, userId: u.id } }); return res.json({ success: true }); }
@@ -632,7 +675,8 @@ app.use('/api', async (req, res) => {
         if (d.status === 'SUCCESS') return res.status(400).json({ error: 'Deposit already approved' });
         await prisma.$transaction(async (tx) => {
           await tx.deposit.update({ where: { id }, data: { status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } });
-          await tx.wallet.update({ where: { userId: d.userId }, data: { main: { increment: d.amount } } });
+          // Business rule: Deposits go to SemWallet, NOT MainWallet
+          await tx.wallet.update({ where: { userId: d.userId }, data: { semWallet: { increment: d.amount } } });
           await tx.transaction.create({ data: { userId: d.userId, type: 'DEPOSIT', amount: d.amount, method: d.method, reference: d.reference, status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } });
           // Referral commission: only on FIRST qualified deposit (>= 100) and ONLY ONCE
           const depositor = await tx.user.findUnique({ where: { id: d.userId }, select: { referrerAgentId: true, invitedBy: true, fullName: true } });
