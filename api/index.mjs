@@ -65,13 +65,14 @@ app.use('/api', async (req, res) => {
       const ua = userAgent || req.headers['user-agent'] || '';
 
       let invitedBy = null;
+      let referrerUserId = null;
       let referrerAgentId = null;
       let referrerDisplayId = null;
       if (referralCode) {
         const code = referralCode.trim().toUpperCase();
         const ru = await prisma.user.findFirst({ where: { invitationCode: code } });
         const ag = await prisma.agentProfile.findUnique({ where: { agentCode: code } }).catch(() => null);
-        if (ru) { invitedBy = code; referrerDisplayId = ru.displayId; }
+        if (ru) { invitedBy = code; referrerUserId = ru.id; referrerDisplayId = ru.displayId; }
         if (ag) referrerAgentId = ag.id;
       }
 
@@ -97,7 +98,26 @@ app.use('/api', async (req, res) => {
           const inviter = await tx.user.findFirst({ where: { invitationCode: invitedBy } });
           if (inviter) await tx.user.update({ where: { id: inviter.id }, data: { referralCount: inviter.referralCount + 1 } });
         }
-        if (referrerAgentId) {
+        // Auto-create Agent profile for the referrer if they don't have one yet (first referral auto-upgrades inviter to Agent)
+        if (invitedBy && referrerUserId) {
+          let agent = await tx.agentProfile.findUnique({ where: { userId: referrerUserId } });
+          if (!agent) {
+            let agentCode = Math.random().toString(36).substring(2, 9).toUpperCase();
+            let existing = await tx.agentProfile.findUnique({ where: { agentCode } });
+            while (existing) {
+              agentCode = Math.random().toString(36).substring(2, 9).toUpperCase();
+              existing = await tx.agentProfile.findUnique({ where: { agentCode } });
+            }
+            agent = await tx.agentProfile.create({
+              data: { userId: referrerUserId, agentCode, agentLink: `${baseUrl}/register?ref=${agentCode}`, status: 'active', totalCommission: 0, totalReferrals: 1, qualifiedDeposits: 0, availableBalance: 0 },
+            });
+          } else {
+            await tx.agentProfile.update({ where: { id: agent.id }, data: { totalReferrals: { increment: 1 } } });
+          }
+          referrerAgentId = agent.id;
+          await tx.user.update({ where: { id: u.id }, data: { referrerAgentId: agent.id } });
+          await tx.agentReferral.create({ data: { agentId: agent.id, userId: u.id, fullName, email: e, status: 'WAITING_DEPOSIT', referrerDisplayId: referrerDisplayId || '', registrationIp: ip, deviceFingerprint: fp, userAgent: ua, bonusGranted: !bonusBlocked, bonusBlocked, bonusBlockReason } });
+        } else if (referrerAgentId) {
           await tx.agentReferral.create({ data: { agentId: referrerAgentId, userId: u.id, fullName, email: e, status: 'WAITING_DEPOSIT', referrerDisplayId: referrerDisplayId || '', registrationIp: ip, deviceFingerprint: fp, userAgent: ua, bonusGranted: !bonusBlocked, bonusBlocked, bonusBlockReason } });
           await tx.agentProfile.update({ where: { id: referrerAgentId }, data: { totalReferrals: { increment: 1 } } });
         }
