@@ -59,6 +59,7 @@ export interface User {
   referralCount: number;
   totalReferralEarnings: number;
   referrerAgentId?: string;
+  isDemo?: boolean;
 }
 
 export interface AuthState {

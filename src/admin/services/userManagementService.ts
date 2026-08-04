@@ -88,9 +88,34 @@ export const userManagementService = {
   async changePassword(userId: string, newPassword: string): Promise<boolean> {
     try { await adminApi.changePassword(userId, newPassword); return true; } catch { return false; }
   },
+  /** Create a demo account with isDemo=true */
+  async createDemoUser(data: { fullName: string; email: string; phone: string; password: string; mainBalance?: number; semBalance?: number; ongoingBalance?: number; verificationStatus?: string; invitationCode?: string; referrer?: string }): Promise<boolean> {
+    try {
+      await adminApi.createDemoUser(data);
+      return true;
+    } catch (e: any) {
+      console.error('Create demo user error:', e?.message || e);
+      return false;
+    }
+  },
+  /** Convert a real account to a demo account */
+  async convertToDemo(userId: string): Promise<boolean> {
+    try { await adminApi.convertToDemo(userId); return true; } catch { return false; }
+  },
+  /** Convert a demo account back to a real account */
+  async convertToReal(userId: string): Promise<boolean> {
+    try { await adminApi.convertToReal(userId); return true; } catch { return false; }
+  },
+  /** Filter by account type - all / real / demo */
+  filterByAccountType(users: any[], type: string): any[] {
+    const list = Array.isArray(users) ? users : [];
+    if (type === 'demo') return list.filter(u => u.isDemo === true);
+    if (type === 'real') return list.filter(u => u.isDemo !== true);
+    return list;
+  },
   exportToCSV(users: any[]): string {
-    const header = 'Name,Email,Phone,Display ID,Created';
-    const rows = (Array.isArray(users) ? users : []).map(u => `${u.fullName || ''},${u.email || ''},${u.phone || ''},${u.displayId || ''},${u.createdAt || ''}`);
+    const header = 'Name,Email,Phone,Display ID,Type,Created';
+    const rows = (Array.isArray(users) ? users : []).map(u => `${u.fullName || ''},${u.email || ''},${u.phone || ''},${u.displayId || ''},${u.isDemo ? 'Demo' : 'Real'},${u.createdAt || ''}`);
     return [header, ...rows].join('\n');
   },
 };

@@ -22,6 +22,7 @@ interface UserData {
   referredBy: string;
   referrerDisplayId: string;
   createdAt: number;
+  isDemo?: boolean;
   wallet: { main: number; semWallet: number; ongoing: number };
 }
 
@@ -45,7 +46,24 @@ export const AdminUsers: React.FC = React.memo(() => {
   const [sortField, setSortField] = useState<SortField>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [accountTypeFilter, setAccountTypeFilter] = useState('all');
   const [page, setPage] = useState(1);
+  const [showCreateDemo, setShowCreateDemo] = useState(false);
+  const [demoForm, setDemoForm] = useState({
+    fullName: '',
+    email: '',
+    phone: '',
+    password: '',
+    mainBalance: '0',
+    semBalance: '0',
+    ongoingBalance: '0',
+    verificationStatus: 'NONE',
+    invitationCode: '',
+    referrer: '',
+  });
+  const [demoFormError, setDemoFormError] = useState('');
+  const [demoFormSuccess, setDemoFormSuccess] = useState('');
+  const [demoSubmitting, setDemoSubmitting] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [walletBalances, setWalletBalances] = useState<{ main: number; semWallet: number; ongoing: number } | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ type: string; userId: string } | null>(null);
@@ -81,11 +99,12 @@ export const AdminUsers: React.FC = React.memo(() => {
   // Filtering
   const filtered = useMemo(() => {
     let list = userManagementService.searchUsers(search, users);
+    list = userManagementService.filterByAccountType(list, accountTypeFilter);
     if (statusFilter !== 'all') {
       list = list.filter((u: any) => u.status === statusFilter);
     }
     return list;
-  }, [users, search, statusFilter]);
+  }, [users, search, statusFilter, accountTypeFilter]);
 
   // Sorting
   const sorted = useMemo(() => {
@@ -199,6 +218,8 @@ export const AdminUsers: React.FC = React.memo(() => {
         success = await userManagementService.changePassword(userId, modalPassword);
         break;
       }
+      case 'convertDemo': success = await userManagementService.convertToDemo(userId); break;
+      case 'convertReal': success = await userManagementService.convertToReal(userId); break;
     }
 
     setProcessing(false);
@@ -222,6 +243,39 @@ export const AdminUsers: React.FC = React.memo(() => {
     a.download = `users_export_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  // Handle demo account creation
+  const submitDemoAccount = async () => {
+    setDemoFormError('');
+    setDemoFormSuccess('');
+    if (!demoForm.fullName.trim() || !demoForm.email.trim() || !demoForm.phone.trim() || !demoForm.password) {
+      setDemoFormError('Full name, email, mobile number and password are required.');
+      return;
+    }
+    setDemoSubmitting(true);
+    const ok = await userManagementService.createDemoUser({
+      fullName: demoForm.fullName.trim(),
+      email: demoForm.email.trim(),
+      phone: demoForm.phone.trim(),
+      password: demoForm.password,
+      mainBalance: parseFloat(demoForm.mainBalance) || 0,
+      semBalance: parseFloat(demoForm.semBalance) || 0,
+      ongoingBalance: parseFloat(demoForm.ongoingBalance) || 0,
+      verificationStatus: demoForm.verificationStatus,
+      invitationCode: demoForm.invitationCode.trim() || undefined,
+      referrer: demoForm.referrer.trim() || undefined,
+    });
+    setDemoSubmitting(false);
+    if (ok) {
+      setDemoFormSuccess('Demo account created successfully.');
+      setDemoForm({ fullName: '', email: '', phone: '', password: '', mainBalance: '0', semBalance: '0', ongoingBalance: '0', verificationStatus: 'NONE', invitationCode: '', referrer: '' });
+      fetchUsers();
+      window.dispatchEvent(new Event('dashboard:update'));
+      setTimeout(() => setShowCreateDemo(false), 1500);
+    } else {
+      setDemoFormError('Failed to create demo account. Check that the email/phone is unique.');
+    }
   };
 
   const SortIcon: React.FC<{ field: SortField }> = ({ field }) => (
@@ -272,6 +326,18 @@ export const AdminUsers: React.FC = React.memo(() => {
           </span>
         </h1>
         <div style={{ display: 'flex', gap: '8px' }}>
+          {/* Create Demo Account */}
+          <button onClick={() => { setShowCreateDemo(true); setDemoFormError(''); setDemoFormSuccess(''); }} style={{
+            display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px',
+            background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.25)',
+            borderRadius: '8px', color: '#A78BFA', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+            fontFamily: "'Inter', sans-serif",
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14m-7-7h14" />
+            </svg>
+            Create Demo Account
+          </button>
           <button onClick={exportCSV} style={{
             display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px',
             background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
@@ -335,6 +401,15 @@ export const AdminUsers: React.FC = React.memo(() => {
           <option value="suspended">Suspended</option>
           <option value="banned">Banned</option>
         </select>
+        <select value={accountTypeFilter} onChange={e => { setAccountTypeFilter(e.target.value); setPage(1); }} style={{
+          padding: '8px 12px', borderRadius: '10px', background: 'rgba(255,255,255,0.04)',
+          border: '1px solid rgba(255,255,255,0.06)', color: '#D1D5DB', fontSize: '12px',
+          fontFamily: "'Inter', sans-serif", cursor: 'pointer', outline: 'none',
+        }}>
+          <option value="all">All Accounts</option>
+          <option value="real">Real Accounts</option>
+          <option value="demo">Demo Accounts</option>
+        </select>
       </div>
 
       {/* Table */}
@@ -381,6 +456,17 @@ export const AdminUsers: React.FC = React.memo(() => {
                 </td>
                 <td style={{ padding: '10px 12px', color: '#FFFFFF', fontWeight: 500 }}>
                   {u.fullName}
+                  {u.isDemo === true && (
+                    <span style={{
+                      marginLeft: '6px', padding: '1px 6px', borderRadius: '4px',
+                      background: 'rgba(139,92,246,0.15)', color: '#A78BFA',
+                      border: '1px solid rgba(139,92,246,0.3)',
+                      fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px',
+                      verticalAlign: 'middle',
+                    }}>
+                      DEMO
+                    </span>
+                  )}
                 </td>
                 <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.6)' }}>
                   {u.email}
@@ -585,6 +671,9 @@ export const AdminUsers: React.FC = React.memo(() => {
                     },
                     { label: 'Force Logout', action: 'forceLogout', color: '#F59E0B' },
                     { label: 'Change Password', action: 'changePassword', color: '#0066FF' },
+                    ...(selectedUser.isDemo === true
+                      ? [{ label: 'Convert to Real', action: 'convertReal', color: '#10B981' }]
+                      : [{ label: 'Convert to Demo', action: 'convertDemo', color: '#8B5CF6' }]),
                   ].map((btn, i) => (
                     <button key={i} onClick={() => setConfirmAction({ type: btn.action, userId: selectedUser.id })}
                       style={{
@@ -653,6 +742,114 @@ export const AdminUsers: React.FC = React.memo(() => {
                       })}
                     </div>
                   )}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ==================== CREATE DEMO ACCOUNT MODAL ==================== */}
+      <AnimatePresence>
+        {showCreateDemo && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onClick={() => setShowCreateDemo(false)}
+          >
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              style={{ background: '#1A2235', borderRadius: '16px', width: '520px', maxWidth: '92vw', maxHeight: '88vh', overflow: 'auto', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#FFFFFF', fontFamily: "'Inter', sans-serif" }}>
+                  Create Demo Account
+                </h2>
+                <button onClick={() => setShowCreateDemo(false)} style={{ color: 'rgba(255,255,255,0.4)', cursor: 'pointer', background: 'none', border: 'none', fontSize: '20px' }}>×</button>
+              </div>
+
+              <div style={{ padding: '24px' }}>
+                {demoFormSuccess && (
+                  <div style={{ marginBottom: '16px', padding: '10px 14px', borderRadius: '8px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', color: '#10B981', fontSize: '12px' }}>
+                    ✅ {demoFormSuccess}
+                  </div>
+                )}
+                {demoFormError && (
+                  <div style={{ marginBottom: '16px', padding: '10px 14px', borderRadius: '8px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#EF4444', fontSize: '12px' }}>
+                    ❌ {demoFormError}
+                  </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                  {[
+                    { key: 'fullName', label: 'Full Name *', type: 'text', placeholder: 'Juan Dela Cruz' },
+                    { key: 'email', label: 'Email *', type: 'email', placeholder: 'demo@example.com' },
+                    { key: 'phone', label: 'Mobile Number *', type: 'text', placeholder: '09171234567' },
+                    { key: 'password', label: 'Password *', type: 'password', placeholder: '••••••••' },
+                    { key: 'mainBalance', label: 'Main Wallet Balance', type: 'number', placeholder: '0' },
+                    { key: 'semBalance', label: 'Sem Wallet Balance', type: 'number', placeholder: '0' },
+                    { key: 'ongoingBalance', label: 'Ongoing Wallet Balance', type: 'number', placeholder: '0' },
+                    { key: 'invitationCode', label: 'Invitation Code (optional)', type: 'text', placeholder: 'Auto-generated' },
+                  ].map(field => (
+                    <div key={field.key}>
+                      <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px' }}>{field.label}</div>
+                      <input type={field.type} value={(demoForm as any)[field.key]} onChange={e => setDemoForm({ ...demoForm, [field.key]: e.target.value })}
+                        placeholder={field.placeholder}
+                        style={{
+                          width: '100%', padding: '10px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(255,255,255,0.1)', color: '#FFFFFF', fontSize: '12px',
+                          fontFamily: "'Inter', sans-serif", outline: 'none',
+                        }}
+                      />
+                    </div>
+                  ))}
+                  {/* Verification Status */}
+                  <div>
+                    <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px' }}>Verification Status</div>
+                    <select value={demoForm.verificationStatus} onChange={e => setDemoForm({ ...demoForm, verificationStatus: e.target.value })} style={{
+                      width: '100%', padding: '10px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.1)', color: '#FFFFFF', fontSize: '12px',
+                      fontFamily: "'Inter', sans-serif", outline: 'none', cursor: 'pointer',
+                    }}>
+                      <option value="NONE">Unverified</option>
+                      <option value="PENDING">Pending</option>
+                      <option value="APPROVED">Approved</option>
+                      <option value="REJECTED">Rejected</option>
+                    </select>
+                  </div>
+                  {/* Referrer */}
+                  <div>
+                    <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px' }}>Referrer (optional)</div>
+                    <input type="text" value={demoForm.referrer} onChange={e => setDemoForm({ ...demoForm, referrer: e.target.value })}
+                      placeholder="Invitation code, display ID, or email"
+                      style={{
+                        width: '100%', padding: '10px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.1)', color: '#FFFFFF', fontSize: '12px',
+                        fontFamily: "'Inter', sans-serif", outline: 'none',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.15)', color: '#A78BFA', fontSize: '11px', marginBottom: '20px', lineHeight: 1.5 }}>
+                  Demo accounts are fully functional but excluded from all production analytics, dashboards, reports, and financial KPIs.
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                  <button onClick={() => setShowCreateDemo(false)} style={{
+                    padding: '8px 16px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.08)', color: '#9CA3AF', fontSize: '12px',
+                    fontWeight: 500, cursor: 'pointer', fontFamily: "'Inter', sans-serif",
+                  }}>
+                    Cancel
+                  </button>
+                  <button onClick={submitDemoAccount} disabled={demoSubmitting} style={{
+                    padding: '8px 20px', borderRadius: '8px', background: 'rgba(139,92,246,0.2)',
+                    border: '1px solid rgba(139,92,246,0.35)', color: '#A78BFA', fontSize: '12px',
+                    fontWeight: 600, cursor: demoSubmitting ? 'default' : 'pointer',
+                    fontFamily: "'Inter', sans-serif", opacity: demoSubmitting ? 0.5 : 1,
+                  }}>
+                    {demoSubmitting ? 'Creating...' : 'Create Demo Account'}
+                  </button>
                 </div>
               </div>
             </motion.div>

@@ -72,6 +72,11 @@ export const adminApi = {
   deleteUser: (id: string) => api(`/users/${id}`, { method: 'DELETE' }),
   getAuditLog: (userId: string) => api<any[]>(`/users/${userId}/audit`),
   getWalletBalances: (userId: string) => api<any>(`/users/${userId}/wallet`),
+  // Demo Accounts
+  createDemoUser: (data: any) => api('/demo-users', { method: 'POST', body: JSON.stringify(data) }),
+  getDemoUsers: () => api<any[]>('/demo-users'),
+  convertToDemo: (userId: string) => api(`/users/${userId}/convert-demo`, { method: 'PATCH' }),
+  convertToReal: (userId: string) => api(`/users/${userId}/convert-real`, { method: 'PATCH' }),
   addMainWallet: (userId: string, amount: number) => api(`/users/${userId}/wallet/main/add`, { method: 'PUT', body: JSON.stringify({ amount }) }),
   deductMainWallet: (userId: string, amount: number) => api(`/users/${userId}/wallet/main/deduct`, { method: 'PUT', body: JSON.stringify({ amount }) }),
   addSemWallet: (userId: string, amount: number) => api(`/users/${userId}/wallet/sem/add`, { method: 'PUT', body: JSON.stringify({ amount }) }),

@@ -51,6 +51,7 @@ model User {
   password             String
   fullName             String
   phone                String   @default("")
+  isDemo               Boolean  @default(false)
   picture              String?
   googleId             String?
   invitationCode       String   @unique

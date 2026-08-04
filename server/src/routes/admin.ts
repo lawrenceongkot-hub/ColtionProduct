@@ -43,31 +43,36 @@ adminRouter.get('/dashboard', async (_req: AuthRequest, res: Response) => {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    // CRITICAL: All production analytics EXCLUDE demo accounts (users.isDemo = true)
     const [users, deposits, withdrawals, orders, transactions, activeSessions, newUsersToday, verifiedUsers, pendingVerification, suspendedBanned, welcomeBonuses, referralCommissions, walletBalance, activeVIP, investedAmount, dailyProfit, completingToday, runningPlans, pendingDeposits, pendingWithdrawals, pendingKYC, failedTx, supportTickets] = await Promise.all([
-      prisma.user.count(),
-      prisma.deposit.aggregate({ _sum: { amount: true }, where: { status: 'SUCCESS' } }),
-      prisma.withdrawal.aggregate({ _sum: { amount: true }, where: { status: 'SUCCESS' } }),
-      prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }),
-      prisma.transaction.count(),
-      prisma.userSession.count({ where: { expiresAt: { gte: new Date() } } }),
-      prisma.user.count({ where: { createdAt: { gte: today } } }),
-      prisma.user.count({ where: { verificationStatus: 'APPROVED' } }),
-      prisma.user.count({ where: { verificationStatus: 'PENDING' } }),
-      prisma.user.count({ where: { verificationStatus: { in: ['SUSPENDED', 'BANNED'] } } }),
-      prisma.welcomeBonusClaim.aggregate({ _sum: { amount: true } }),
-      prisma.agentCommission.aggregate({ _sum: { commissionAmount: true } }),
-      prisma.wallet.aggregate({ _sum: { main: true } }),
-      prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }),
-      prisma.investmentOrder.aggregate({ _sum: { buyAmount: true }, where: { status: 'ACTIVE' } }),
-      prisma.transaction.aggregate({ _sum: { amount: true }, where: { type: 'DAILY_PROFIT', createdAt: { gte: today } } }),
-      prisma.investmentOrder.count({ where: { status: 'ACTIVE', completedDays: { gte: 29 } } }),
-      prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }),
-      prisma.deposit.count({ where: { status: 'PENDING' } }),
-      prisma.withdrawal.count({ where: { status: 'PENDING' } }),
-      prisma.verificationRequest.count({ where: { status: 'PENDING' } }),
-      prisma.transaction.count({ where: { status: 'FAILED' } }),
-      prisma.notification.count({ where: { read: false } }),
+      prisma.user.count({ where: { isDemo: false } }),
+      prisma.deposit.aggregate({ _sum: { amount: true }, where: { status: 'SUCCESS', user: { isDemo: false } } }),
+      prisma.withdrawal.aggregate({ _sum: { netAmount: true }, where: { status: 'SUCCESS', user: { isDemo: false } } }),
+      prisma.investmentOrder.count({ where: { status: 'ACTIVE', user: { isDemo: false } } }),
+      prisma.transaction.count({ where: { user: { isDemo: false } } }),
+      prisma.userSession.count({ where: { expiresAt: { gte: new Date() }, user: { isDemo: false } } }),
+      prisma.user.count({ where: { createdAt: { gte: today }, isDemo: false } }),
+      prisma.user.count({ where: { verificationStatus: 'APPROVED', isDemo: false } }),
+      prisma.user.count({ where: { verificationStatus: 'PENDING', isDemo: false } }),
+      prisma.user.count({ where: { verificationStatus: { in: ['SUSPENDED', 'BANNED'] }, isDemo: false } }),
+      prisma.welcomeBonusClaim.aggregate({ _sum: { amount: true }, where: { user: { isDemo: false } } }),
+      prisma.agentCommission.aggregate({ _sum: { commissionAmount: true }, where: { user: { isDemo: false, agentProfile: { isNot: null } } } }),
+      prisma.wallet.aggregate({ _sum: { main: true, semWallet: true, ongoing: true }, where: { user: { isDemo: false } } }),
+      prisma.investmentOrder.count({ where: { status: 'ACTIVE', user: { isDemo: false } } }),
+      prisma.investmentOrder.aggregate({ _sum: { buyAmount: true }, where: { status: 'ACTIVE', user: { isDemo: false } } }),
+      prisma.transaction.aggregate({ _sum: { amount: true }, where: { type: 'DAILY_PROFIT', createdAt: { gte: today }, user: { isDemo: false } } }),
+      prisma.investmentOrder.count({ where: { status: 'ACTIVE', completedDays: { gte: 29 }, user: { isDemo: false } } }),
+      prisma.investmentOrder.count({ where: { status: 'ACTIVE', user: { isDemo: false } } }),
+      prisma.deposit.count({ where: { status: 'PENDING', user: { isDemo: false } } }),
+      prisma.withdrawal.count({ where: { status: 'PENDING', user: { isDemo: false } } }),
+      prisma.verificationRequest.count({ where: { status: 'PENDING', user: { isDemo: false } } }),
+      prisma.transaction.count({ where: { status: 'FAILED', user: { isDemo: false } } }),
+      prisma.notification.count({ where: { read: false, user: { isDemo: false } } }),
     ]);
+
+    const totalWalletBalance = (walletBalance._sum.main || 0) + (walletBalance._sum.semWallet || 0) + (walletBalance._sum.ongoing || 0);
+    const totalDeposits = deposits._sum.amount || 0;
+    const totalWithdrawals = withdrawals._sum.netAmount || 0;
 
     res.json({
       totalUsers: users,
@@ -76,12 +81,12 @@ adminRouter.get('/dashboard', async (_req: AuthRequest, res: Response) => {
       verifiedUsers,
       pendingVerification,
       suspendedBanned,
-      totalDeposits: deposits._sum.amount || 0,
-      totalWithdrawals: withdrawals._sum.amount || 0,
-      netRevenue: (deposits._sum.amount || 0) - (withdrawals._sum.amount || 0),
+      totalDeposits,
+      totalWithdrawals,
+      netRevenue: totalDeposits - totalWithdrawals,
       totalWelcomeBonuses: welcomeBonuses._sum.amount || 0,
       totalReferralCommissions: referralCommissions._sum.commissionAmount || 0,
-      totalWalletBalance: walletBalance._sum.main || 0,
+      totalWalletBalance,
       activeVIPMembers: activeVIP,
       activeInvestmentOrders: orders,
       totalInvestedAmount: investedAmount._sum.buyAmount || 0,
@@ -401,6 +406,108 @@ adminRouter.put('/verifications/:id/:action', async (req: AuthRequest, res: Resp
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: 'Failed to update verification' });
+  }
+});
+
+// ============ ADMIN DEMO ACCOUNTS ============
+// POST /api/admin/demo-users - Create a demo account (Super Admin only)
+adminRouter.post('/demo-users', async (req: AuthRequest, res: Response) => {
+  try {
+    const { fullName, email, phone, password, mainBalance, semBalance, ongoingBalance, verificationStatus, invitationCode, referrer } = req.body;
+    if (!fullName || !email || !phone || !password) return res.status(400).json({ error: 'Full name, email, mobile number and password are required' });
+    const e = String(email).toLowerCase().trim();
+    if (await prisma.user.findUnique({ where: { email: e } })) return res.status(400).json({ error: 'Email is already registered.' });
+    if (await prisma.user.findFirst({ where: { phone } })) return res.status(400).json({ error: 'Mobile number is already registered.' });
+
+    let displayId = String(Math.floor(Math.random() * 10000000000)).padStart(10, '0');
+    while (await prisma.user.findUnique({ where: { displayId } }).catch(() => null)) displayId = String(Math.floor(Math.random() * 10000000000)).padStart(10, '0');
+    let invCode = (invitationCode || Math.random().toString(36).substring(2, 10).toUpperCase());
+    while (await prisma.user.findUnique({ where: { invitationCode: invCode } }).catch(() => null)) invCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    let invitedBy: string | null = null;
+    let referrerAgentId: string | null = null;
+    let referrerDisplayId: string | null = null;
+    if (referrer) {
+      const ru = await prisma.user.findFirst({ where: { OR: [{ invitationCode: referrer }, { displayId: referrer }, { email: String(referrer).toLowerCase().trim() }] } });
+      if (ru) {
+        invitedBy = ru.invitationCode;
+        referrerDisplayId = ru.displayId;
+        const ag = await prisma.agentProfile.findUnique({ where: { userId: ru.id } }).catch(() => null);
+        if (ag) referrerAgentId = ag.id;
+      }
+    }
+    const parsedMain = parseFloat(mainBalance || 0) || 0;
+    const parsedSem = parseFloat(semBalance || 0) || 0;
+    const parsedOngoing = parseFloat(ongoingBalance || 0) || 0;
+    const hashed = await bcrypt.hash(String(password), 12);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          displayId, email: e, password: hashed, fullName, phone,
+          isDemo: true,
+          invitationCode: invCode, invitationLink: `${baseUrl}/register?ref=${invCode}`,
+          invitedBy, referrerAgentId,
+          verificationStatus: verificationStatus || 'NONE',
+          referralCount: 0, totalReferralEarnings: 0,
+        },
+      });
+      await tx.wallet.create({ data: { userId: user.id, main: parsedMain, semWallet: parsedSem, ongoing: parsedOngoing } });
+      if (invitedBy) {
+        await tx.referral.create({ data: { inviterCode: invitedBy, referredUserId: user.id, referredName: fullName, referredEmail: e, status: 'active' } });
+        const inviter = await tx.user.findFirst({ where: { invitationCode: invitedBy } });
+        if (inviter) await tx.user.update({ where: { id: inviter.id }, data: { referralCount: { increment: 1 } } });
+      }
+      if (referrerAgentId) {
+        await tx.agentReferral.create({ data: { agentId: referrerAgentId, userId: user.id, fullName, email: e, status: 'WAITING_DEPOSIT' } });
+        await tx.agentProfile.update({ where: { id: referrerAgentId }, data: { totalReferrals: { increment: 1 } } });
+      }
+      await tx.auditLog.create({ data: { adminId: req.user?.id, adminName: req.user?.email, adminRole: 'admin', userId: user.id, action: 'Create Demo Account', timestamp: new Date() } });
+      return user;
+    });
+    return res.status(201).json({ id: result.id, displayId, email: e, fullName, phone, isDemo: true, createdAt: result.createdAt });
+  } catch (error: any) {
+    console.error('Create demo user error:', error?.message || error);
+    res.status(500).json({ error: 'Failed to create demo account' });
+  }
+});
+
+// GET /api/admin/demo-users - List demo accounts
+adminRouter.get('/demo-users', async (_req: AuthRequest, res: Response) => {
+  try {
+    const users = await prisma.user.findMany({ where: { isDemo: true }, orderBy: { createdAt: 'desc' }, include: { wallet: true } });
+    res.json(users);
+  } catch {
+    res.status(500).json({ error: 'Failed to get demo users' });
+  }
+});
+
+// PATCH /api/admin/users/:id/convert-demo
+adminRouter.patch('/users/:id/convert-demo', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    const user = await prisma.user.update({ where: { id }, data: { isDemo: true } });
+    await prisma.auditLog.create({ data: { adminId: req.user?.id, adminName: req.user?.email, adminRole: 'admin', userId: id, action: 'Convert Demo', beforeValue: String(target.isDemo), afterValue: 'true', timestamp: new Date() } });
+    res.json({ success: true, isDemo: true, user });
+  } catch {
+    res.status(500).json({ error: 'Failed to convert to demo' });
+  }
+});
+
+// PATCH /api/admin/users/:id/convert-real
+adminRouter.patch('/users/:id/convert-real', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    const user = await prisma.user.update({ where: { id }, data: { isDemo: false } });
+    await prisma.auditLog.create({ data: { adminId: req.user?.id, adminName: req.user?.email, adminRole: 'admin', userId: id, action: 'Convert Real', beforeValue: String(target.isDemo), afterValue: 'false', timestamp: new Date() } });
+    res.json({ success: true, isDemo: false, user });
+  } catch {
+    res.status(500).json({ error: 'Failed to convert to real' });
   }
 });
 
