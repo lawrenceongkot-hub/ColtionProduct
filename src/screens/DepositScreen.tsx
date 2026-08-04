@@ -29,6 +29,7 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
   const [step, setStep] = useState<'form' | 'confirm'>('form');
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<{ ref: string; id: string } | null>(null);
+  const [paymongoFailed, setPaymongoFailed] = useState(false);
   const [customError, setCustomError] = useState<string | null>(null);
 
   const numericAmount = parseFloat(amount) || 0;
@@ -64,13 +65,23 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
     setCustomError(null);
     setIsProcessing(true);
     try {
-      // Create a real PayMongo checkout session
-      const checkout = await transactionService.createPayMongoCheckout(method, numericAmount);
-      setResult({ ref: checkout.reference, id: checkout.sessionId });
-      // Redirect to PayMongo's hosted checkout page
-      window.location.href = checkout.checkoutUrl;
+      // Try create a real payment gateway checkout session
+      try {
+        const checkout = await transactionService.createPayMongoCheckout(method, numericAmount);
+        setResult({ ref: checkout.reference, id: checkout.sessionId });
+        // Redirect to the gateway's hosted checkout page
+        window.location.href = checkout.checkoutUrl;
+        return;
+      } catch (pgError: any) {
+        // If the gateway is not configured/available, fall back to a manual PENDING deposit
+        // that the admin can approve. Never dead-end the user.
+        console.warn('Payment gateway unavailable, falling back to manual deposit:', pgError?.message || pgError);
+        setPaymongoFailed(true);
+        const tx = await transactionService.createDeposit(user.id, method, numericAmount);
+        setResult({ ref: tx.reference, id: tx.id });
+      }
     } catch (e: any) {
-      setCustomError(e.message || 'Failed to create payment session');
+      setCustomError(e.message || 'Failed to create deposit');
     } finally {
       setIsProcessing(false);
     }
