@@ -373,12 +373,23 @@ app.use('/api', async (req, res) => {
             requestPayload: moxsysPayload,
           };
           console.error('[Moxsys] REJECTED:', JSON.stringify(errDetail, null, 2));
-          // Return the EXACT Moxsys error to the frontend - never silently fall back
+          // Extract the EXACT Moxsys error - check all possible response shapes
+          // Moxsys may return: { message }, { error }, { errors: [{message}] }, or raw text
+          const providerMsg =
+            moxsysData?.message ||
+            moxsysData?.error ||
+            moxsysData?.errors?.[0]?.message ||
+            moxsysData?.detail ||
+            moxsysData?.raw ||
+            (typeof moxsysData === 'string' ? moxsysData : null) ||
+            'Payment gateway error';
+          // Surface the FULL provider response so the user/developer can see exactly what Moxsys returned
           return res.status(400).json({
-            error: moxsysData?.message || moxsysData?.errors?.[0]?.message || 'Payment gateway error',
+            error: providerMsg,
             provider: 'Moxsys',
             providerStatus: moxsysRes.status,
             providerResponse: moxsysData,
+            providerRawBody: moxsysText.substring(0, 2000),
           });
         }
 
