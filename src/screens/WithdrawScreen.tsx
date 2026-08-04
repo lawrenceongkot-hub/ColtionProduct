@@ -161,10 +161,14 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
 
     setIsAdding(true);
     setAddError(null);
-    await new Promise(resolve => setTimeout(resolve, 800));
 
-    // Save wallet
-    await ewalletService.saveWallet(user.id, addProvider, addWalletNumber, addPassword);
+    // Save wallet - only proceed if the backend actually created the row
+    const saved = await ewalletService.saveWallet(user.id, addProvider, addWalletNumber, addPassword);
+    if (!saved) {
+      setAddError('Failed to save wallet. Please try again.');
+      setIsAdding(false);
+      return;
+    }
 
     // Immediately reload wallets and select the new one
     const all = await loadWallets();
@@ -193,14 +197,19 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
     if (!valid) { setError('Incorrect withdrawal password.'); return; }
     setError(null);
     setIsProcessing(true);
-    await new Promise(resolve => setTimeout(resolve, 1200));
     try {
       const tx = await walletService.withdraw(numericAmount, currentWallet.provider, currentWallet.walletNumber);
-      setResult({ ref: tx.reference || tx.id || 'WTH-' + Date.now() });
-    } catch {
-      setError('Failed to submit withdrawal. Please try again.');
+      // Only show success after the backend returns a real withdrawal record
+      if (!tx || !tx.reference) {
+        setError('Withdrawal was not created. Please try again.');
+      } else {
+        setResult({ ref: tx.reference });
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Failed to submit withdrawal. Please try again.');
+    } finally {
+      setIsProcessing(false);
     }
-    setIsProcessing(false);
   }, [numericAmount, balances.main, withdrawalPassword, currentWallet]);
 
   if (result) {

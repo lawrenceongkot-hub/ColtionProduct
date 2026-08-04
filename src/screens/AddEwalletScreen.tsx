@@ -29,9 +29,13 @@ export const AddEwalletScreen: React.FC<AddEwalletScreenProps> = React.memo(({ o
 
     setIsLoading(true);
     setError(null);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    ewalletService.saveWallet(user.id, provider, walletNumber, password);
+    // Only proceed if the backend actually created the wallet row
+    const saved = await ewalletService.saveWallet(user.id, provider, walletNumber, password);
     setIsLoading(false);
+    if (!saved) {
+      setError('Failed to save wallet. Please try again.');
+      return;
+    }
     onComplete();
   }, [user, provider, walletNumber, password, confirmPassword, onComplete]);
 

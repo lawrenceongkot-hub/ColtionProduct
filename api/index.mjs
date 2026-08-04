@@ -246,8 +246,25 @@ app.use('/api', async (req, res) => {
 
     // ============ WITHDRAWALS ============
     if (m === 'POST' && p === '/api/withdrawals') {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { amount, method, walletNumber } = body; if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' }); const w = await prisma.wallet.findUnique({ where: { userId: u.id } }); if (!w || w.main < amount) return res.status(400).json({ error: 'Insufficient balance' }); const ref = 'WTH-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase(); const wd = await prisma.withdrawal.create({ data: { userId: u.id, amount: parseFloat(amount), method: method || 'bank_transfer', walletNumber: walletNumber || '', reference: ref, status: 'PENDING' } }); return res.status(201).json(wd); }
-      catch (e) { return res.status(500).json({ error: e.message }); }
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const { amount, method, walletNumber } = body;
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+        const parsedAmount = parseFloat(amount);
+        const ref = 'WTH-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+        // Single atomic transaction: lock wallet, validate, deduct, create Withdrawal + Transaction + AuditLog
+        const wd = await prisma.$transaction(async (tx) => {
+          const w = await tx.wallet.findUnique({ where: { userId: u.id } });
+          if (!w) throw new Error('Wallet not found');
+          if (w.main < parsedAmount) throw new Error('Insufficient balance');
+          await tx.wallet.update({ where: { userId: u.id }, data: { main: { decrement: parsedAmount } } });
+          const withdrawal = await tx.withdrawal.create({ data: { userId: u.id, amount: parsedAmount, method: method || 'bank_transfer', walletNumber: walletNumber || '', reference: ref, status: 'PENDING' } });
+          await tx.transaction.create({ data: { userId: u.id, type: 'WITHDRAWAL', amount: parsedAmount, method: method || 'bank_transfer', walletNumber: walletNumber || '', reference: ref, status: 'PENDING' } });
+          await tx.auditLog.create({ data: { userId: u.id, action: 'Withdrawal Requested', amount: parsedAmount, timestamp: new Date() } });
+          return withdrawal;
+        });
+        return res.status(201).json(wd);
+      } catch (e) { console.error('Withdrawal create error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed to create withdrawal' }); }
     }
     if (m === 'GET' && p === '/api/withdrawals') {
       try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const w = await prisma.withdrawal.findMany({ where: { userId: u.id }, orderBy: { createdAt: 'desc' } }); return res.json(w); }
