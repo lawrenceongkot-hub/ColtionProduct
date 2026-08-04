@@ -264,32 +264,7 @@ export const AuthWelcomeScreen: React.FC<AuthNavigation> = React.memo(({ onNavig
             </GlassCard>
           )}
 
-          {/* Recent Registrations */}
-          {stats.recentRegistrations && stats.recentRegistrations.length > 0 && (
-            <GlassCard maxWidth="100%" padding="clamp(14px, 2vw, 20px)">
-              <div style={{ fontSize: typography.sm, fontWeight: typography.semibold, color: colors.textPrimary, fontFamily: typography.fontFamily, marginBottom: '12px' }}>
-                Recent Registrations
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {stats.recentRegistrations.slice(0, displaySettings?.latestInvestorCount || 5).map((reg, i) => (
-                  <div key={reg.id || i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', borderRadius: '8px', background: colors.bgGlassLight }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: colors.bgGlassMedium, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: typography.xs, fontWeight: typography.bold, color: colors.textPrimary }}>
-                        {reg.fullName?.charAt(0)?.toUpperCase() || 'U'}
-                      </div>
-                      <div>
-                        <div style={{ fontSize: typography.sm, fontWeight: typography.semibold, color: colors.textPrimary, fontFamily: typography.fontFamily }}>{reg.fullName}</div>
-                        <div style={{ fontSize: typography.xs, color: colors.textTertiary, fontFamily: typography.fontFamily }}>{reg.displayId}</div>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: typography.xs, color: colors.textTertiary, fontFamily: typography.fontFamily }}>
-                      {new Date(reg.date).toLocaleDateString()}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </GlassCard>
-          )}
+          {/* Recent Registrations - REMOVED per privacy requirement */}
         </motion.div>
 
         {/* Glass Card with CTA */}

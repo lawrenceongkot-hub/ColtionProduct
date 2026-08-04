@@ -123,6 +123,18 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
     </span>
   );
 
+  // Safe number formatter - never crashes on undefined/null
+  const fmt = (val: any): string => {
+    const n = parseFloat(val);
+    return isNaN(n) ? '0' : n.toLocaleString();
+  };
+
+  // Safe date formatter - never crashes on undefined/null
+  const fmtDate = (val: any): string => {
+    if (!val) return '-';
+    try { return new Date(val).toLocaleString(); } catch { return '-'; }
+  };
+
   const statusColor = (s: string) => {
     switch (s) {
       case 'pending': return '#F59E0B';
@@ -253,16 +265,16 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
                 <td style={{ padding: '10px 12px', color: '#D1D5DB', fontFamily: 'monospace', fontSize: '11px' }}>{w.reference}</td>
                 <td style={{ padding: '10px 12px', color: '#FFFFFF', fontWeight: 500 }}>{w.userFullName || w.user?.fullName || 'N/A'}</td>
                 <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.6)' }}>{w.method}</td>
-                <td style={{ padding: '10px 12px', color: '#E5E7EB', fontWeight: 600 }}>₱{w.amount.toLocaleString()}</td>
-                <td style={{ padding: '10px 12px', color: '#EF4444', fontWeight: 500 }}>₱{(w.fee || 0).toLocaleString()}</td>
-                <td style={{ padding: '10px 12px', color: '#10B981', fontWeight: 600 }}>₱{(w.netAmount || w.amount || 0).toLocaleString()}</td>
+                <td style={{ padding: '10px 12px', color: '#E5E7EB', fontWeight: 600 }}>₱{fmt(w.amount)}</td>
+                <td style={{ padding: '10px 12px', color: '#EF4444', fontWeight: 500 }}>₱{fmt(w.fee)}</td>
+                <td style={{ padding: '10px 12px', color: '#10B981', fontWeight: 600 }}>₱{fmt(w.netAmount || w.amount)}</td>
                 <td style={{ padding: '10px 12px' }}>
                   <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, background: `${statusColor(w.status)}15`, color: statusColor(w.status), border: `1px solid ${statusColor(w.status)}22` }}>
                     {w.status}
                   </span>
                 </td>
                 <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.4)', fontSize: '11px', whiteSpace: 'nowrap' }}>
-                  {new Date(w.createdAt).toLocaleDateString()}
+                  {fmtDate(w.createdAt)}
                 </td>
                 <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.4)', fontSize: '10px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {w.accountNumber || w.walletNumber || '—'}
@@ -338,13 +350,13 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
                     { label: 'Withdrawal Method', value: selectedW.method },
                     { label: 'Account Name', value: selectedW.accountName },
                     { label: 'Account Number', value: selectedW.accountNumber },
-                    { label: 'Requested Amount', value: `₱${(selectedW.amount ?? 0).toLocaleString()}` },
-                    { label: 'Processing Fee (10%)', value: `₱${(selectedW.fee ?? 0).toLocaleString()}` },
-                    { label: 'Net Amount to Send', value: `₱${(selectedW.netAmount ?? selectedW.amount ?? 0).toLocaleString()}` },
+                    { label: 'Requested Amount', value: `₱${fmt(selectedW.amount)}` },
+                    { label: 'Processing Fee (10%)', value: `₱${fmt(selectedW.fee)}` },
+                    { label: 'Net Amount to Send', value: `₱${fmt(selectedW.netAmount || selectedW.amount)}` },
                     { label: 'Status', value: <span style={{ padding: '2px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: `${statusColor(selectedW.status)}15`, color: statusColor(selectedW.status), border: `1px solid ${statusColor(selectedW.status)}22` }}>{selectedW.status}</span> },
-                    { label: 'Request Date', value: selectedW.createdAt ? new Date(selectedW.createdAt).toLocaleString() : '-' },
-                    { label: 'Approved Date', value: selectedW.approvedAt ? new Date(selectedW.approvedAt).toLocaleString() : '-' },
-                    { label: 'Completed Date', value: selectedW.completedAtTime ? new Date(selectedW.completedAtTime).toLocaleString() : '-' },
+                    { label: 'Request Date', value: fmtDate(selectedW.createdAt) },
+                    { label: 'Approved Date', value: fmtDate(selectedW.approvedAt) },
+                    { label: 'Completed Date', value: fmtDate(selectedW.completedAtTime) },
                     { label: 'Approved By', value: selectedW.approvedBy || '-' },
                     { label: 'Processed By', value: selectedW.processedBy || '-' },
                     { label: 'Completed By', value: selectedW.completedBy || '-' },
@@ -369,10 +381,10 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
                     </h3>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '20px' }}>
                       {[
-                        { label: 'Main Wallet', value: `₱${(walletInfo.main ?? 0).toLocaleString()}`, color: '#0066FF' },
-                        { label: 'SemWallet', value: `₱${(walletInfo.semWallet ?? 0).toLocaleString()}`, color: '#10B981' },
-                        { label: 'Ongoing Wallet', value: `₱${(walletInfo.ongoing ?? 0).toLocaleString()}`, color: '#F59E0B' },
-                        { label: 'Total Investment', value: `₱${(walletInfo.totalInvested ?? 0).toLocaleString()}`, color: '#8B5CF6' },
+                        { label: 'Main Wallet', value: `₱${fmt(walletInfo.main)}`, color: '#0066FF' },
+                        { label: 'SemWallet', value: `₱${fmt(walletInfo.semWallet)}`, color: '#10B981' },
+                        { label: 'Ongoing Wallet', value: `₱${fmt(walletInfo.ongoing)}`, color: '#F59E0B' },
+                        { label: 'Total Investment', value: `₱${fmt(walletInfo.totalInvested)}`, color: '#8B5CF6' },
                         { label: 'Active VIP', value: walletInfo.activeVIP ?? '—', color: '#EC4899' },
                         { label: 'Remaining Days', value: (walletInfo.remainingDays ?? 0).toString(), color: '#06B6D4' },
                       ].map((w, i) => (
@@ -422,11 +434,11 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
               <div style={{ marginBottom: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Amount</span>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#FFFFFF' }}>₱{(confirmAction.withdrawal.amount ?? 0).toLocaleString()}</span>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#FFFFFF' }}>₱{fmt(confirmAction.withdrawal.amount)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Net Amount</span>
-                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#10B981' }}>₱{(confirmAction.withdrawal.netAmount ?? confirmAction.withdrawal.amount ?? 0).toLocaleString()}</span>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#10B981' }}>₱{fmt(confirmAction.withdrawal.netAmount || confirmAction.withdrawal.amount)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>User</span>

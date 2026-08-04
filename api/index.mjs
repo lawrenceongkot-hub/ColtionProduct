@@ -46,79 +46,61 @@ app.use('/api', async (req, res) => {
       return t ? jwt.verify(t, process.env.JWT_SECRET || 'fallback') : null;
     }
 
-    // Privacy: mask personal information for public endpoints
-    function maskName(name) {
-      if (!name) return 'User';
-      const parts = String(name).trim().split(/\s+/);
-      if (parts.length === 1) {
-        const n = parts[0];
-        return n.length <= 4 ? n[0] + '*'.repeat(Math.max(n.length - 1, 1)) : n.slice(0, 4) + '*'.repeat(Math.min(n.length - 4, 4));
+    // Privacy: generate fake marketing display data for public landing page
+    // NEVER expose real user names, phones, emails, or display IDs
+    const FAKE_FIRST_NAMES = ['Rose', 'Karl', 'John', 'Maria', 'James', 'Anna', 'Mark', 'Liza', 'Paul', 'Grace', 'Ryan', 'Mia', 'Josh', 'Ella', 'Ben', 'Nina', 'Leo', 'Sara', 'Tom', 'Ivy'];
+    const FAKE_LAST_NAMES = ['Bangita', 'Gonzales', 'Cruz', 'Santos', 'Reyes', 'Garcia', 'Mendoza', 'Torres', 'Flores', 'Ramos', 'Aquino', 'Dela Cruz', 'Villanueva', 'Navarro', 'Salazar', 'Bautista', 'Ocampo', 'Padilla', 'Domingo', 'Castillo'];
+
+    function generateFakeInvestors(count) {
+      const investors = [];
+      for (let i = 0; i < count; i++) {
+        const first = FAKE_FIRST_NAMES[Math.floor(Math.random() * FAKE_FIRST_NAMES.length)];
+        const last = FAKE_LAST_NAMES[Math.floor(Math.random() * FAKE_LAST_NAMES.length)];
+        const maskedFirst = first.slice(0, 4) + '****';
+        const maskedLast = last.slice(0, 4) + '***';
+        const phone = '09' + String(Math.floor(Math.random() * 900000000) + 100000000).slice(0, 9);
+        const maskedPhone = phone.slice(0, 4) + '*****' + phone.slice(-2);
+        const amount = Math.floor(Math.random() * 19000) + 1000; // ₱1,000 to ₱20,000
+        investors.push({
+          id: 'fake-' + i + '-' + Date.now(),
+          fullName: `${maskedFirst} ${maskedLast}`,
+          displayId: maskedPhone,
+          amount,
+          date: new Date(Date.now() - i * 86400000).toISOString(),
+        });
       }
-      const first = parts[0];
-      const last = parts[parts.length - 1];
-      const firstMasked = first.length <= 4 ? first[0] + '*'.repeat(Math.max(first.length - 1, 1)) : first.slice(0, 4) + '*'.repeat(4);
-      const lastMasked = last.length <= 4 ? last[0] + '*'.repeat(Math.max(last.length - 1, 1)) : last.slice(0, 4) + '***';
-      return `${firstMasked} ${lastMasked}`;
-    }
-
-    function maskDisplayId(id) {
-      if (!id) return '';
-      const s = String(id);
-      if (s.length <= 6) return s.slice(0, 3) + '***';
-      return s.slice(0, 3) + '*'.repeat(Math.max(s.length - 5, 5)) + s.slice(-2);
-    }
-
-    function maskPhone(phone) {
-      if (!phone) return '';
-      const p = String(phone);
-      if (p.length <= 6) return p.slice(0, 3) + '***';
-      return p.slice(0, 4) + '*'.repeat(Math.max(p.length - 6, 5)) + p.slice(-2);
+      return investors;
     }
 
     // ============ PUBLIC LANDING STATISTICS ============
+    // NEVER expose real user data. Generate fake marketing display data.
     if (m === 'GET' && p === '/api/landing/stats') {
       try {
         const settings = await prisma.platformSettings.findFirst();
         const totalUsers = await prisma.user.count();
         const totalInvestments = await prisma.investmentOrder.aggregate({ _sum: { buyAmount: true }, where: { status: 'ACTIVE' } });
-        const latestInvestors = await prisma.investmentOrder.findMany({
-          orderBy: { purchaseDate: 'desc' },
-          take: settings?.landingLatestInvestorCount || 5,
-          include: { user: { select: { fullName: true, displayId: true } } },
-        });
-        const latestInvestments = await prisma.investmentOrder.findMany({
-          orderBy: { purchaseDate: 'desc' },
-          take: settings?.landingLatestInvestorCount || 5,
-          include: { user: { select: { fullName: true, displayId: true } } },
-        });
-        const topInvestors = await prisma.investmentOrder.groupBy({
-          by: ['userId'],
-          _sum: { buyAmount: true },
-          orderBy: { _sum: { buyAmount: 'desc' } },
-          take: 5,
-        });
-        const topInvestorIds = topInvestors.map(t => t.userId);
-        const topInvestorUsers = topInvestorIds.length ? await prisma.user.findMany({ where: { id: { in: topInvestorIds } }, select: { id: true, fullName: true, displayId: true } }) : [];
-        const topInvestorsEnriched = topInvestors.map(t => {
-          const u = topInvestorUsers.find(x => x.id === t.userId);
-          return { userId: t.userId, fullName: u?.fullName || 'User', displayId: u?.displayId || '', totalInvested: t._sum.buyAmount || 0 };
-        });
-        const recentRegistrations = await prisma.user.findMany({
-          orderBy: { createdAt: 'desc' },
-          take: settings?.landingLatestInvestorCount || 5,
-          select: { id: true, fullName: true, displayId: true, createdAt: true },
-        });
+        const activeInvestors = await prisma.investmentOrder.count({ where: { status: 'ACTIVE' } });
+        const investorCount = Math.min(settings?.landingLatestInvestorCount || 5, 10);
+
+        // Generate fake marketing data - NEVER real user data
+        const fakeLatestInvestors = generateFakeInvestors(investorCount);
+        const fakeTopInvestors = generateFakeInvestors(Math.min(investorCount, 10)).map((inv, i) => ({
+          ...inv,
+          totalInvested: inv.amount * (10 - i),
+        }));
 
         return res.json({
           totalUsers,
           totalInvestments: totalInvestments._sum.buyAmount || 0,
-          latestInvestors: latestInvestors.map(o => ({ id: o.id, fullName: maskName(o.user?.fullName) || 'User', displayId: maskDisplayId(o.user?.displayId) || '', amount: o.buyAmount, date: o.purchaseDate })),
-          latestInvestments: latestInvestments.map(o => ({ id: o.id, fullName: maskName(o.user?.fullName) || 'User', displayId: maskDisplayId(o.user?.displayId) || '', amount: o.buyAmount, plan: o.vipName, date: o.purchaseDate })),
-          topInvestors: topInvestorsEnriched.map(t => ({ userId: t.userId, fullName: maskName(t.fullName) || 'User', displayId: maskDisplayId(t.displayId) || '', totalInvested: t.totalInvested })),
-          recentRegistrations: recentRegistrations.map(u => ({ id: u.id, fullName: maskName(u.fullName), displayId: maskDisplayId(u.displayId), date: u.createdAt })),
+          activeInvestors,
+          latestInvestors: fakeLatestInvestors,
+          latestInvestments: fakeLatestInvestors.map(inv => ({ ...inv, plan: 'VIP ' + (Math.floor(Math.random() * 10) + 1) })),
+          topInvestors: fakeTopInvestors,
+          recentRegistrations: [],
           displaySettings: {
             totalUsersDisplay: settings?.landingTotalUsersDisplay || totalUsers,
             totalInvestmentsDisplay: settings?.landingTotalInvestmentsDisplay || (totalInvestments._sum.buyAmount || 0),
+            activeInvestorsDisplay: settings?.landingLatestInvestorCount || activeInvestors,
             latestInvestorCount: settings?.landingLatestInvestorCount || 5,
             enableLiveCounter: settings?.landingEnableLiveCounter ?? true,
             enableAnimatedNumbers: settings?.landingEnableAnimatedNumbers ?? true,
@@ -1023,14 +1005,34 @@ app.use('/api', async (req, res) => {
         const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
         // Self-heal: ensure all columns exist before upsert
         await ensurePlatformSettingsColumns();
-        const s = await prisma.platformSettings.upsert({ where: { id: 'default' }, update: body, create: { id: 'default', ...body } });
+        // FIX: Serialize complex fields to JSON strings BEFORE saving to Prisma
+        // Prisma expects String for these columns, never Object/Array
+        const data = { ...body };
+        if (data.paymentMethods && typeof data.paymentMethods === 'object') {
+          data.paymentMethods = JSON.stringify(data.paymentMethods);
+        }
+        if (data.ipWhitelist && Array.isArray(data.ipWhitelist)) {
+          data.ipWhitelist = JSON.stringify(data.ipWhitelist);
+        }
+        if (data.ipBlacklist && Array.isArray(data.ipBlacklist)) {
+          data.ipBlacklist = JSON.stringify(data.ipBlacklist);
+        }
+        if (data.countryRestrictions && typeof data.countryRestrictions === 'object') {
+          data.countryRestrictions = JSON.stringify(data.countryRestrictions);
+        }
+        const s = await prisma.platformSettings.upsert({ where: { id: 'default' }, update: data, create: { id: 'default', ...data } });
         return res.json(s);
       } catch (e) {
         console.error('Update settings error:', e?.message || e);
         // Try migration one more time and retry
         try {
           await ensurePlatformSettingsColumns();
-          const s = await prisma.platformSettings.upsert({ where: { id: 'default' }, update: body, create: { id: 'default', ...body } });
+          const data = { ...body };
+          if (data.paymentMethods && typeof data.paymentMethods === 'object') data.paymentMethods = JSON.stringify(data.paymentMethods);
+          if (data.ipWhitelist && Array.isArray(data.ipWhitelist)) data.ipWhitelist = JSON.stringify(data.ipWhitelist);
+          if (data.ipBlacklist && Array.isArray(data.ipBlacklist)) data.ipBlacklist = JSON.stringify(data.ipBlacklist);
+          if (data.countryRestrictions && typeof data.countryRestrictions === 'object') data.countryRestrictions = JSON.stringify(data.countryRestrictions);
+          const s = await prisma.platformSettings.upsert({ where: { id: 'default' }, update: data, create: { id: 'default', ...data } });
           return res.json(s);
         } catch (e2) {
           console.error('Update settings retry error:', e2?.message || e2);
