@@ -46,6 +46,35 @@ app.use('/api', async (req, res) => {
       return t ? jwt.verify(t, process.env.JWT_SECRET || 'fallback') : null;
     }
 
+    // Privacy: mask personal information for public endpoints
+    function maskName(name) {
+      if (!name) return 'User';
+      const parts = String(name).trim().split(/\s+/);
+      if (parts.length === 1) {
+        const n = parts[0];
+        return n.length <= 4 ? n[0] + '*'.repeat(Math.max(n.length - 1, 1)) : n.slice(0, 4) + '*'.repeat(Math.min(n.length - 4, 4));
+      }
+      const first = parts[0];
+      const last = parts[parts.length - 1];
+      const firstMasked = first.length <= 4 ? first[0] + '*'.repeat(Math.max(first.length - 1, 1)) : first.slice(0, 4) + '*'.repeat(4);
+      const lastMasked = last.length <= 4 ? last[0] + '*'.repeat(Math.max(last.length - 1, 1)) : last.slice(0, 4) + '***';
+      return `${firstMasked} ${lastMasked}`;
+    }
+
+    function maskDisplayId(id) {
+      if (!id) return '';
+      const s = String(id);
+      if (s.length <= 6) return s.slice(0, 3) + '***';
+      return s.slice(0, 3) + '*'.repeat(Math.max(s.length - 5, 5)) + s.slice(-2);
+    }
+
+    function maskPhone(phone) {
+      if (!phone) return '';
+      const p = String(phone);
+      if (p.length <= 6) return p.slice(0, 3) + '***';
+      return p.slice(0, 4) + '*'.repeat(Math.max(p.length - 6, 5)) + p.slice(-2);
+    }
+
     // ============ PUBLIC LANDING STATISTICS ============
     if (m === 'GET' && p === '/api/landing/stats') {
       try {
@@ -83,10 +112,10 @@ app.use('/api', async (req, res) => {
         return res.json({
           totalUsers,
           totalInvestments: totalInvestments._sum.buyAmount || 0,
-          latestInvestors: latestInvestors.map(o => ({ id: o.id, fullName: o.user?.fullName || 'User', displayId: o.user?.displayId || '', amount: o.buyAmount, date: o.purchaseDate })),
-          latestInvestments: latestInvestments.map(o => ({ id: o.id, fullName: o.user?.fullName || 'User', displayId: o.user?.displayId || '', amount: o.buyAmount, plan: o.vipName, date: o.purchaseDate })),
-          topInvestors: topInvestorsEnriched,
-          recentRegistrations: recentRegistrations.map(u => ({ id: u.id, fullName: u.fullName, displayId: u.displayId, date: u.createdAt })),
+          latestInvestors: latestInvestors.map(o => ({ id: o.id, fullName: maskName(o.user?.fullName) || 'User', displayId: maskDisplayId(o.user?.displayId) || '', amount: o.buyAmount, date: o.purchaseDate })),
+          latestInvestments: latestInvestments.map(o => ({ id: o.id, fullName: maskName(o.user?.fullName) || 'User', displayId: maskDisplayId(o.user?.displayId) || '', amount: o.buyAmount, plan: o.vipName, date: o.purchaseDate })),
+          topInvestors: topInvestorsEnriched.map(t => ({ userId: t.userId, fullName: maskName(t.fullName) || 'User', displayId: maskDisplayId(t.displayId) || '', totalInvested: t.totalInvested })),
+          recentRegistrations: recentRegistrations.map(u => ({ id: u.id, fullName: maskName(u.fullName), displayId: maskDisplayId(u.displayId), date: u.createdAt })),
           displaySettings: {
             totalUsersDisplay: settings?.landingTotalUsersDisplay || totalUsers,
             totalInvestmentsDisplay: settings?.landingTotalInvestmentsDisplay || (totalInvestments._sum.buyAmount || 0),
@@ -964,13 +993,50 @@ app.use('/api', async (req, res) => {
       } catch { return res.status(500).json({ error: 'Failed' }); }
     }
 
+    // Run migration to add missing columns if needed (self-healing)
+    async function ensurePlatformSettingsColumns() {
+      try {
+        await prisma.$queryRawUnsafe(`ALTER TABLE "PlatformSettings" ADD COLUMN IF NOT EXISTS "landingTotalUsersDisplay" DOUBLE PRECISION NOT NULL DEFAULT 0`);
+        await prisma.$queryRawUnsafe(`ALTER TABLE "PlatformSettings" ADD COLUMN IF NOT EXISTS "landingTotalInvestmentsDisplay" DOUBLE PRECISION NOT NULL DEFAULT 0`);
+        await prisma.$queryRawUnsafe(`ALTER TABLE "PlatformSettings" ADD COLUMN IF NOT EXISTS "landingLatestInvestorCount" INTEGER NOT NULL DEFAULT 5`);
+        await prisma.$queryRawUnsafe(`ALTER TABLE "PlatformSettings" ADD COLUMN IF NOT EXISTS "landingEnableLiveCounter" BOOLEAN NOT NULL DEFAULT true`);
+        await prisma.$queryRawUnsafe(`ALTER TABLE "PlatformSettings" ADD COLUMN IF NOT EXISTS "landingEnableAnimatedNumbers" BOOLEAN NOT NULL DEFAULT true`);
+        await prisma.$queryRawUnsafe(`ALTER TABLE "Withdrawal" ADD COLUMN IF NOT EXISTS "fee" DOUBLE PRECISION NOT NULL DEFAULT 0`);
+        await prisma.$queryRawUnsafe(`ALTER TABLE "Withdrawal" ADD COLUMN IF NOT EXISTS "netAmount" DOUBLE PRECISION NOT NULL DEFAULT 0`);
+        return true;
+      } catch (e) {
+        console.error('Migration error:', e?.message || e);
+        return false;
+      }
+    }
+
     if (m === 'GET' && p === '/api/admin/settings') {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const s = await prisma.platformSettings.findFirst(); return res.json(s || {}); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        await ensurePlatformSettingsColumns();
+        const s = await prisma.platformSettings.findFirst();
+        return res.json(s || {});
+      } catch (e) { console.error('Get settings error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
     if (m === 'PUT' && p === '/api/admin/settings') {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const s = await prisma.platformSettings.upsert({ where: { id: 'default' }, update: body, create: { id: 'default', ...body } }); return res.json(s); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        // Self-heal: ensure all columns exist before upsert
+        await ensurePlatformSettingsColumns();
+        const s = await prisma.platformSettings.upsert({ where: { id: 'default' }, update: body, create: { id: 'default', ...body } });
+        return res.json(s);
+      } catch (e) {
+        console.error('Update settings error:', e?.message || e);
+        // Try migration one more time and retry
+        try {
+          await ensurePlatformSettingsColumns();
+          const s = await prisma.platformSettings.upsert({ where: { id: 'default' }, update: body, create: { id: 'default', ...body } });
+          return res.json(s);
+        } catch (e2) {
+          console.error('Update settings retry error:', e2?.message || e2);
+          return res.status(500).json({ error: e2?.message || 'Failed to update settings' });
+        }
+      }
     }
 
     if (m === 'GET' && p === '/api/admin/agents') {
