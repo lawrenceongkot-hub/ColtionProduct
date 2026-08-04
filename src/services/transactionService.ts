@@ -28,25 +28,25 @@ export const transactionService = {
     }
   },
 
-  /** Create a PayMongo checkout session and return the checkout URL */
+  /** Create a Moxsys invoice (checkout session) and return the checkout URL */
   async createPayMongoCheckout(method: string, amount: number): Promise<{ checkoutUrl: string; reference: string; sessionId: string }> {
     try {
-      const result = await apiService.post<any>('/payments/paymongo/checkout', { amount, method });
+      const result = await apiService.post<any>('/payments/moxsys/checkout', { amount, method });
       return {
         checkoutUrl: result.checkoutUrl,
         reference: result.reference,
         sessionId: result.sessionId,
       };
     } catch (e: any) {
-      console.error('PayMongo checkout error:', e?.message || e);
+      console.error('Moxsys checkout error:', e?.message || e);
       throw new Error(e?.message || 'Failed to create payment session');
     }
   },
 
-  /** Check the status of a PayMongo payment */
+  /** Check the status of a Moxsys payment */
   async checkPayMongoStatus(reference: string): Promise<{ status: string; amount: number; method: string }> {
     try {
-      return await apiService.get<any>(`/payments/paymongo/status/${reference}`);
+      return await apiService.get<any>(`/payments/moxsys/status/${reference}`);
     } catch {
       return { status: 'PENDING', amount: 0, method: '' };
     }

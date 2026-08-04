@@ -291,80 +291,76 @@ app.use('/api', async (req, res) => {
       catch { return res.status(403).json({ error: 'Invalid token' }); }
     }
 
-    // ============ PAYMONGO PAYMENT GATEWAY ============
-    // POST /api/payments/paymongo/checkout - Create a PayMongo checkout session
-    if (m === 'POST' && p === '/api/payments/paymongo/checkout') {
+    // ============ MOXSYS PAYMENT GATEWAY ============
+    // POST /api/payments/moxsys/checkout - Create a Moxsys invoice (checkout session)
+    if (m === 'POST' && p === '/api/payments/moxsys/checkout') {
       try {
         const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
         const { amount, method } = body;
         if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
-        const parsedAmount = Math.round(parseFloat(amount) * 100); // PayMongo uses centavos
+        const parsedAmount = Math.round(parseFloat(amount) * 100); // Moxsys uses centavos (integer)
         // Use env var if set, otherwise fall back to the configured test key
-        const paymongoKey = process.env.PAYMONGO_SECRET_KEY || 'Ht23THehMXQmOa9QL91mkAKhmISIaTTATlzaVK43GghH4oW8IU';
-        if (!paymongoKey) return res.status(500).json({ error: 'Payment gateway not configured' });
+        const moxsysApiKey = process.env.MOXSYS_API_KEY || 'Ht23THehMXQmOa9QL91mkAKhmISIaTTATlzaVK43GghH4oW8IU';
+        const moxsysMode = process.env.MOXSYS_MODE || 'sandbox'; // sandbox for testing, live for production
+        if (!moxsysApiKey) return res.status(500).json({ error: 'Payment gateway not configured' });
 
-        // Map platform methods to PayMongo payment method types
+        // Map platform methods to Moxsys payment_method values
         const methodMap = {
-          'GCash': ['gcash'],
-          'Maya': ['maya'],
-          'QRPH': ['qrph'],
-          'GrabPay': ['grab_pay'],
-          'Card': ['card'],
+          'GCash': 'gcash',
+          'Maya': 'maya',
+          'QRPH': 'qrph',
+          'GrabPay': 'grabpay',
+          'GoTyme': 'gotyme',
+          'ShopeePay': 'shopeepay',
+          'UnionBank': 'unionbank',
         };
-        const paymentMethodTypes = methodMap[method] || ['gcash', 'maya', 'qrph', 'grab_pay', 'card'];
+        const paymentMethod = methodMap[method] || 'checkout';
 
         const ref = 'DEP-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
         const baseUrl = process.env.FRONTEND_URL || 'https://coltionproduct.vercel.app';
+        const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).substring(2, 10));
 
-        // Create PayMongo checkout session
-        const paymongoRes = await fetch('https://api.paymongo.com/v1/checkout_sessions', {
+        // Create Moxsys invoice
+        const moxsysRes = await fetch(`https://platform.moxsys.io/api/v1/${moxsysMode}/invoices/create`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Basic ' + Buffer.from(paymongoKey + ':').toString('base64'),
+            'Accept': 'application/json',
+            'Authorization': 'Bearer ' + moxsysApiKey,
+            'Idempotency-Key': idempotencyKey,
           },
           body: JSON.stringify({
-            data: {
-              attributes: {
-                billing: {
-                  name: u.email || 'Customer',
-                  email: u.email || '',
-                },
-                line_items: [{
-                  currency: 'PHP',
-                  amount: parsedAmount,
-                  name: 'Wallet Deposit',
-                  quantity: 1,
-                }],
-                payment_method_types: paymentMethodTypes,
-                success_url: `${baseUrl}/deposit?status=success&ref=${ref}`,
-                cancel_url: `${baseUrl}/deposit?status=cancelled&ref=${ref}`,
-                description: `Wallet Deposit - ${ref}`,
-                metadata: { reference: ref, userId: u.id },
-              },
-            },
+            external_id: ref,
+            amount: parsedAmount,
+            payer_email: u.email || '',
+            description: `Wallet Deposit - ${ref}`,
+            success_redirect_url: `${baseUrl}/deposit?status=success&ref=${ref}`,
+            failure_redirect_url: `${baseUrl}/deposit?status=failed&ref=${ref}`,
+            payment_method: paymentMethod,
+            callback_url: `${baseUrl}/api/payments/moxsys/webhook`,
+            metadata: { reference: ref, userId: u.id },
           }),
         });
 
-        const paymongoData = await paymongoRes.json();
-        if (!paymongoRes.ok) {
-          console.error('PayMongo checkout error:', JSON.stringify(paymongoData));
-          return res.status(400).json({ error: paymongoData?.errors?.[0]?.detail || 'Payment gateway error' });
+        const moxsysData = await moxsysRes.json();
+        if (!moxsysRes.ok) {
+          console.error('Moxsys invoice error:', JSON.stringify(moxsysData));
+          return res.status(400).json({ error: moxsysData?.message || moxsysData?.errors?.[0]?.message || 'Payment gateway error' });
         }
 
-        const session = paymongoData.data;
-        const checkoutUrl = session.attributes.checkout_url;
-        const sessionId = session.id;
+        const invoice = moxsysData.data || moxsysData;
+        const invoiceUrl = invoice.invoice_url;
+        const invoiceId = invoice.id;
 
-        // Create deposit record with PayMongo session reference
+        // Create deposit record with Moxsys invoice reference
         const deposit = await prisma.$transaction(async (tx) => {
           const d = await tx.deposit.create({
             data: {
               userId: u.id,
               amount: parseFloat(amount),
-              method: method || 'paymongo',
+              method: method || 'moxsys',
               reference: ref,
-              proofOfPayment: sessionId || '',
+              proofOfPayment: invoiceId || '',
               status: 'PENDING',
             },
           });
@@ -373,7 +369,7 @@ app.use('/api', async (req, res) => {
               userId: u.id,
               type: 'DEPOSIT',
               amount: parseFloat(amount),
-              method: method || 'paymongo',
+              method: method || 'moxsys',
               reference: ref,
               status: 'PENDING',
             },
@@ -384,42 +380,43 @@ app.use('/api', async (req, res) => {
         return res.status(201).json({
           id: deposit.id,
           reference: ref,
-          checkoutUrl,
-          sessionId,
+          checkoutUrl: invoiceUrl,
+          sessionId: invoiceId,
           amount: parseFloat(amount),
-          method: method || 'paymongo',
+          method: method || 'moxsys',
           status: 'PENDING',
         });
-      } catch (e) { console.error('PayMongo checkout error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed to create payment' }); }
+      } catch (e) { console.error('Moxsys invoice error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed to create payment' }); }
     }
 
-    // GET /api/payments/paymongo/status/:ref - Check payment status
-    if (m === 'GET' && p.startsWith('/api/payments/paymongo/status/')) {
+    // GET /api/payments/moxsys/status/:ref - Check payment status
+    if (m === 'GET' && p.startsWith('/api/payments/moxsys/status/')) {
       try {
         const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
-        const ref = p.replace('/api/payments/paymongo/status/', '');
+        const ref = p.replace('/api/payments/moxsys/status/', '');
         const deposit = await prisma.deposit.findFirst({ where: { reference: ref, userId: u.id } });
         if (!deposit) return res.status(404).json({ error: 'Deposit not found' });
         return res.json({ reference: deposit.reference, status: deposit.status, amount: deposit.amount, method: deposit.method });
       } catch { return res.status(500).json({ error: 'Failed to check payment status' }); }
     }
 
-    // POST /api/payments/paymongo/webhook - PayMongo webhook for payment success
-    if (m === 'POST' && p === '/api/payments/paymongo/webhook') {
+    // POST /api/payments/moxsys/webhook - Moxsys webhook for payment success
+    if (m === 'POST' && p === '/api/payments/moxsys/webhook') {
       try {
         const event = body;
-        const eventType = event?.data?.attributes?.type || event?.type || '';
-        const sessionId = event?.data?.id || event?.data?.attributes?.data?.id || '';
+        const status = event?.status || '';
+        const externalId = event?.external_id || '';
+        const paidAmount = event?.paid_amount || event?.amount || 0;
 
         // Only process successful payment events
-        if (eventType === 'checkout_session.payment_paid' || eventType === 'payment.paid') {
-          // Find deposit by PayMongo session ID (stored in proofOfPayment)
-          const deposit = await prisma.deposit.findFirst({ where: { proofOfPayment: sessionId } });
+        if (status === 'paid' && externalId) {
+          // Find deposit by external reference
+          const deposit = await prisma.deposit.findFirst({ where: { reference: externalId } });
           if (deposit && deposit.status === 'PENDING') {
             await prisma.$transaction(async (tx) => {
               await tx.deposit.update({
                 where: { id: deposit.id },
-                data: { status: 'SUCCESS', completedAt: new Date(), approvedBy: 'PayMongo' },
+                data: { status: 'SUCCESS', completedAt: new Date(), approvedBy: 'Moxsys' },
               });
               // Business rule: Deposits go to SemWallet
               await tx.wallet.update({ where: { userId: deposit.userId }, data: { semWallet: { increment: deposit.amount } } });
@@ -434,8 +431,8 @@ app.use('/api', async (req, res) => {
             });
           }
         }
-        return res.json({ received: true });
-      } catch (e) { console.error('PayMongo webhook error:', e?.message || e); return res.status(500).json({ error: 'Webhook processing failed' }); }
+        return res.json({ status: 'received' });
+      } catch (e) { console.error('Moxsys webhook error:', e?.message || e); return res.status(500).json({ error: 'Webhook processing failed' }); }
     }
 
     // ============ DEPOSITS ============
