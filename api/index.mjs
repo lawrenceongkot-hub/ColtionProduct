@@ -318,7 +318,14 @@ app.use('/api', async (req, res) => {
 
         const ref = 'DEP-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
         const baseUrl = process.env.FRONTEND_URL || 'https://coltionproduct.vercel.app';
-        const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).substring(2, 10));
+        // Moxsys requires a valid UUID v4 for the Idempotency-Key header
+        const idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+              const r = (Math.random() * 16) | 0;
+              const v = c === 'x' ? r : (r & 0x3) | 0x8;
+              return v.toString(16);
+            });
 
         // Create Moxsys invoice
         const moxsysRes = await fetch(`https://platform.moxsys.io/api/v1/${moxsysMode}/invoices/create`, {
