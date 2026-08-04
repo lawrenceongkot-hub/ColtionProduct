@@ -291,6 +291,152 @@ app.use('/api', async (req, res) => {
       catch { return res.status(403).json({ error: 'Invalid token' }); }
     }
 
+    // ============ PAYMONGO PAYMENT GATEWAY ============
+    // POST /api/payments/paymongo/checkout - Create a PayMongo checkout session
+    if (m === 'POST' && p === '/api/payments/paymongo/checkout') {
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const { amount, method } = body;
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+        const parsedAmount = Math.round(parseFloat(amount) * 100); // PayMongo uses centavos
+        const paymongoKey = process.env.PAYMONGO_SECRET_KEY;
+        if (!paymongoKey) return res.status(500).json({ error: 'Payment gateway not configured' });
+
+        // Map platform methods to PayMongo payment method types
+        const methodMap = {
+          'GCash': ['gcash'],
+          'Maya': ['maya'],
+          'QRPH': ['qrph'],
+          'GrabPay': ['grab_pay'],
+          'Card': ['card'],
+        };
+        const paymentMethodTypes = methodMap[method] || ['gcash', 'maya', 'qrph', 'grab_pay', 'card'];
+
+        const ref = 'DEP-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+        const baseUrl = process.env.FRONTEND_URL || 'https://coltionproduct.vercel.app';
+
+        // Create PayMongo checkout session
+        const paymongoRes = await fetch('https://api.paymongo.com/v1/checkout_sessions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Basic ' + Buffer.from(paymongoKey + ':').toString('base64'),
+          },
+          body: JSON.stringify({
+            data: {
+              attributes: {
+                billing: {
+                  name: u.email || 'Customer',
+                  email: u.email || '',
+                },
+                line_items: [{
+                  currency: 'PHP',
+                  amount: parsedAmount,
+                  name: 'Wallet Deposit',
+                  quantity: 1,
+                }],
+                payment_method_types: paymentMethodTypes,
+                success_url: `${baseUrl}/deposit?status=success&ref=${ref}`,
+                cancel_url: `${baseUrl}/deposit?status=cancelled&ref=${ref}`,
+                description: `Wallet Deposit - ${ref}`,
+                metadata: { reference: ref, userId: u.id },
+              },
+            },
+          }),
+        });
+
+        const paymongoData = await paymongoRes.json();
+        if (!paymongoRes.ok) {
+          console.error('PayMongo checkout error:', JSON.stringify(paymongoData));
+          return res.status(400).json({ error: paymongoData?.errors?.[0]?.detail || 'Payment gateway error' });
+        }
+
+        const session = paymongoData.data;
+        const checkoutUrl = session.attributes.checkout_url;
+        const sessionId = session.id;
+
+        // Create deposit record with PayMongo session reference
+        const deposit = await prisma.$transaction(async (tx) => {
+          const d = await tx.deposit.create({
+            data: {
+              userId: u.id,
+              amount: parseFloat(amount),
+              method: method || 'paymongo',
+              reference: ref,
+              proofOfPayment: sessionId || '',
+              status: 'PENDING',
+            },
+          });
+          await tx.transaction.create({
+            data: {
+              userId: u.id,
+              type: 'DEPOSIT',
+              amount: parseFloat(amount),
+              method: method || 'paymongo',
+              reference: ref,
+              status: 'PENDING',
+            },
+          });
+          return d;
+        });
+
+        return res.status(201).json({
+          id: deposit.id,
+          reference: ref,
+          checkoutUrl,
+          sessionId,
+          amount: parseFloat(amount),
+          method: method || 'paymongo',
+          status: 'PENDING',
+        });
+      } catch (e) { console.error('PayMongo checkout error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed to create payment' }); }
+    }
+
+    // GET /api/payments/paymongo/status/:ref - Check payment status
+    if (m === 'GET' && p.startsWith('/api/payments/paymongo/status/')) {
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const ref = p.replace('/api/payments/paymongo/status/', '');
+        const deposit = await prisma.deposit.findFirst({ where: { reference: ref, userId: u.id } });
+        if (!deposit) return res.status(404).json({ error: 'Deposit not found' });
+        return res.json({ reference: deposit.reference, status: deposit.status, amount: deposit.amount, method: deposit.method });
+      } catch { return res.status(500).json({ error: 'Failed to check payment status' }); }
+    }
+
+    // POST /api/payments/paymongo/webhook - PayMongo webhook for payment success
+    if (m === 'POST' && p === '/api/payments/paymongo/webhook') {
+      try {
+        const event = body;
+        const eventType = event?.data?.attributes?.type || event?.type || '';
+        const sessionId = event?.data?.id || event?.data?.attributes?.data?.id || '';
+
+        // Only process successful payment events
+        if (eventType === 'checkout_session.payment_paid' || eventType === 'payment.paid') {
+          // Find deposit by PayMongo session ID (stored in proofOfPayment)
+          const deposit = await prisma.deposit.findFirst({ where: { proofOfPayment: sessionId } });
+          if (deposit && deposit.status === 'PENDING') {
+            await prisma.$transaction(async (tx) => {
+              await tx.deposit.update({
+                where: { id: deposit.id },
+                data: { status: 'SUCCESS', completedAt: new Date(), approvedBy: 'PayMongo' },
+              });
+              // Business rule: Deposits go to SemWallet
+              await tx.wallet.update({ where: { userId: deposit.userId }, data: { semWallet: { increment: deposit.amount } } });
+              await tx.transaction.updateMany({
+                where: { reference: deposit.reference },
+                data: { status: 'SUCCESS', completedAt: new Date() },
+              });
+              // Create notification
+              await tx.notification.create({
+                data: { userId: deposit.userId, type: 'DEPOSIT_APPROVED', message: `Your deposit of ₱${deposit.amount.toLocaleString()} has been approved.`, read: false },
+              });
+            });
+          }
+        }
+        return res.json({ received: true });
+      } catch (e) { console.error('PayMongo webhook error:', e?.message || e); return res.status(500).json({ error: 'Webhook processing failed' }); }
+    }
+
     // ============ DEPOSITS ============
     if (m === 'POST' && p === '/api/deposits') {
       try {

@@ -64,10 +64,13 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
     setCustomError(null);
     setIsProcessing(true);
     try {
-      const tx = await transactionService.createDeposit(user.id, method, numericAmount);
-      setResult({ ref: tx.reference, id: tx.id });
+      // Create a real PayMongo checkout session
+      const checkout = await transactionService.createPayMongoCheckout(method, numericAmount);
+      setResult({ ref: checkout.reference, id: checkout.sessionId });
+      // Redirect to PayMongo's hosted checkout page
+      window.location.href = checkout.checkoutUrl;
     } catch (e: any) {
-      setCustomError(e.message || 'Failed to create deposit');
+      setCustomError(e.message || 'Failed to create payment session');
     } finally {
       setIsProcessing(false);
     }

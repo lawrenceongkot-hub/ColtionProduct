@@ -28,6 +28,30 @@ export const transactionService = {
     }
   },
 
+  /** Create a PayMongo checkout session and return the checkout URL */
+  async createPayMongoCheckout(method: string, amount: number): Promise<{ checkoutUrl: string; reference: string; sessionId: string }> {
+    try {
+      const result = await apiService.post<any>('/payments/paymongo/checkout', { amount, method });
+      return {
+        checkoutUrl: result.checkoutUrl,
+        reference: result.reference,
+        sessionId: result.sessionId,
+      };
+    } catch (e: any) {
+      console.error('PayMongo checkout error:', e?.message || e);
+      throw new Error(e?.message || 'Failed to create payment session');
+    }
+  },
+
+  /** Check the status of a PayMongo payment */
+  async checkPayMongoStatus(reference: string): Promise<{ status: string; amount: number; method: string }> {
+    try {
+      return await apiService.get<any>(`/payments/paymongo/status/${reference}`);
+    } catch {
+      return { status: 'PENDING', amount: 0, method: '' };
+    }
+  },
+
   async confirmDeposit(txId: string, userId: string, amount: number): Promise<void> {
     // Deposits are confirmed by admin in the admin panel
     // This is a client-side simulation
