@@ -5,6 +5,7 @@ import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { FIELD_VALIDATION } from '../constants';
 import { useAuth } from '../context/AuthContext';
+import { apiService } from '../services/api';
 import type { ValidationError } from '../types';
 
 interface Props {
@@ -43,25 +44,11 @@ export const ChangePasswordSection: React.FC<Props> = React.memo(({ onBack }) =>
     setIsLoading(true);
 
     try {
-      // Verify current password and update to new password in actual storage
-      const users = JSON.parse(localStorage.getItem('coltion_users') || '[]');
-      const storedUser = users.find((u: any) => u.id === user.id);
-      
-      if (!storedUser) {
-        setBackendError('User account not found.');
-        setIsLoading(false);
-        return;
-      }
-      
-      if (storedUser.password !== currentPassword) {
-        setBackendError('Current password is incorrect.');
-        setIsLoading(false);
-        return;
-      }
-
-      // Update password
-      storedUser.password = newPassword;
-      localStorage.setItem('coltion_users', JSON.stringify(users));
+      // Use the production backend API to change password
+      await apiService.put('/users/password', {
+        currentPassword,
+        newPassword,
+      });
 
       // Notify dashboard
       try { window.dispatchEvent(new CustomEvent('dashboard:update')); } catch {}
@@ -72,8 +59,8 @@ export const ChangePasswordSection: React.FC<Props> = React.memo(({ onBack }) =>
         setSuccess(false);
         onBack();
       }, 2000);
-    } catch (err) {
-      setBackendError('An error occurred. Please try again.');
+    } catch (err: any) {
+      setBackendError(err?.message || 'An error occurred. Please try again.');
       setIsLoading(false);
     }
   }, [validate, onBack, user, currentPassword, newPassword]);
@@ -127,13 +114,13 @@ export const ChangePasswordSection: React.FC<Props> = React.memo(({ onBack }) =>
         </h2>
 
         <AnimatePresence mode="wait">
-              {backendError && (
-                <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
-                  style={{ fontSize: typography.sm, color: colors.error, fontFamily: typography.fontFamily, textAlign: 'center', marginBottom: '8px' }}>
-                  {backendError}
-                </motion.p>
-              )}
-              {success ? (
+          {backendError && (
+            <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
+              style={{ fontSize: typography.sm, color: colors.error, fontFamily: typography.fontFamily, textAlign: 'center', marginBottom: '8px' }}>
+              {backendError}
+            </motion.p>
+          )}
+          {success ? (
             <motion.div
               key="success"
               style={{

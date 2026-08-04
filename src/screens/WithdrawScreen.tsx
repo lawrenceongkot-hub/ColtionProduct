@@ -168,8 +168,8 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
     setIsAdding(true);
     setAddError(null);
 
-    // Save wallet - only proceed if the backend actually created the row
-    const saved = await ewalletService.saveWallet(user.id, addProvider, addWalletNumber, addPassword);
+    // Save wallet - password only required for first wallet, backend reuses existing hash for additional wallets
+    const saved = await ewalletService.saveWallet(user.id, addProvider, addWalletNumber, isFirstWallet ? addPassword : '');
     if (!saved) {
       setAddError('Failed to save wallet. Please try again.');
       setIsAdding(false);
