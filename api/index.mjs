@@ -584,12 +584,24 @@ app.use('/api', async (req, res) => {
         const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
         const { provider, walletNumber, withdrawalPassword } = body;
         if (!provider || !walletNumber) return res.status(400).json({ error: 'Required' });
-        if (!withdrawalPassword) return res.status(400).json({ error: 'Withdrawal password is required' });
         // Check if wallet number already exists for this user
         const existing = await prisma.eWallet.findFirst({ where: { walletNumber, userId: u.id } });
         if (existing) return res.status(400).json({ error: 'Wallet number already registered' });
-        const hashed = await bcrypt.hash(String(withdrawalPassword), 12);
-        const e = await prisma.eWallet.create({ data: { userId: u.id, provider, walletNumber, withdrawalPassword: hashed } });
+        // ISSUE 3: withdrawalPassword is only required for the FIRST wallet
+        // For additional wallets, reuse the existing password hash from the first wallet
+        let passwordHash = '';
+        if (withdrawalPassword) {
+          passwordHash = await bcrypt.hash(String(withdrawalPassword), 12);
+        } else {
+          // Get the first wallet's password hash to reuse
+          const firstWallet = await prisma.eWallet.findFirst({ where: { userId: u.id }, orderBy: { createdAt: 'asc' } });
+          if (firstWallet) {
+            passwordHash = firstWallet.withdrawalPassword;
+          } else {
+            return res.status(400).json({ error: 'Withdrawal password is required for the first wallet' });
+          }
+        }
+        const e = await prisma.eWallet.create({ data: { userId: u.id, provider, walletNumber, withdrawalPassword: passwordHash } });
         return res.status(201).json({ id: e.id, userId: e.userId, provider: e.provider, walletNumber: e.walletNumber });
       } catch (e) { console.error('Add ewallet error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
@@ -665,10 +677,13 @@ app.use('/api', async (req, res) => {
       try {
         const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
         const today = new Date(); today.setHours(0, 0, 0, 0);
-        const [tu, td, tw, ao, tx, as, nut, vu, pv, sb, wb, rc, wb2, av, ia, dp, ct, rp, pd, pw, pk, ft, st] = await Promise.all([
+        const [tu, td, tw, twf, ao, tx, as, nut, vu, pv, sb, wb, rc, wb2, av, ia, dp, ct, rp, pd, pw, pk, ft, st] = await Promise.all([
           prisma.user.count(),
           prisma.deposit.aggregate({ _sum: { amount: true }, where: { status: 'SUCCESS' } }),
-          prisma.withdrawal.aggregate({ _sum: { amount: true }, where: { status: 'SUCCESS' } }),
+          // ISSUE 2: Total Withdrawals = SUM(netAmount) = actual released amount
+          prisma.withdrawal.aggregate({ _sum: { netAmount: true }, where: { status: 'SUCCESS' } }),
+          // ISSUE 2: Withdrawal Fees = SUM(fee) = retained company fees
+          prisma.withdrawal.aggregate({ _sum: { fee: true }, where: { status: 'SUCCESS' } }),
           prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }),
           prisma.transaction.count(),
           prisma.userSession.findMany({ where: { expiresAt: { gte: new Date() } }, select: { userId: true }, distinct: ['userId'] }).then(s => s.length),
@@ -678,7 +693,8 @@ app.use('/api', async (req, res) => {
           prisma.user.count({ where: { verificationStatus: { in: ['SUSPENDED', 'BANNED'] } } }),
           prisma.welcomeBonusClaim.aggregate({ _sum: { amount: true } }),
           prisma.agentCommission.aggregate({ _sum: { commissionAmount: true } }),
-          prisma.wallet.aggregate({ _sum: { main: true } }),
+          // ISSUE 1: Total Wallet Balance = SUM(main + semWallet + ongoing) for ALL users
+          prisma.wallet.aggregate({ _sum: { main: true, semWallet: true, ongoing: true } }),
           prisma.investmentOrder.count({ where: { status: 'ACTIVE' } }),
           prisma.investmentOrder.aggregate({ _sum: { buyAmount: true }, where: { status: 'ACTIVE' } }),
           prisma.transaction.aggregate({ _sum: { amount: true }, where: { type: 'DAILY_PROFIT', createdAt: { gte: today } } }),
@@ -690,8 +706,16 @@ app.use('/api', async (req, res) => {
           prisma.transaction.count({ where: { status: 'FAILED' } }),
           prisma.notification.count({ where: { read: false } }),
         ]);
-        return res.json({ totalUsers: tu, onlineUsers: as, newUsersToday: nut, verifiedUsers: vu, pendingVerification: pv, suspendedBanned: sb, totalDeposits: td._sum.amount || 0, totalWithdrawals: tw._sum.amount || 0, netRevenue: (td._sum.amount || 0) - (tw._sum.amount || 0), totalWelcomeBonuses: wb._sum.amount || 0, totalReferralCommissions: rc._sum.commissionAmount || 0, totalWalletBalance: wb2._sum.main || 0, activeVIPMembers: av, activeInvestmentOrders: ao, totalInvestedAmount: ia._sum.buyAmount || 0, dailyProfitDistributedToday: dp._sum.amount || 0, investmentsCompletingToday: ct, runningInvestmentPlans: rp, pendingDeposits: pd, pendingWithdrawals: pw, pendingKYC: pk, failedTransactions: ft, pendingSupportRequests: st, lastUpdated: new Date().toISOString() });
-      } catch { return res.status(500).json({ error: 'Failed' }); }
+        // ISSUE 1: Sum all three wallet fields for total wallet balance
+        const totalWalletBalance = (wb2._sum.main || 0) + (wb2._sum.semWallet || 0) + (wb2._sum.ongoing || 0);
+        // ISSUE 2: Total Withdrawals = released amount (netAmount), Withdrawal Fees = retained fees
+        const totalWithdrawals = tw._sum.netAmount || 0;
+        const withdrawalFees = twf._sum.fee || 0;
+        // ISSUE 2: Net Revenue = deposits - released withdrawals - withdrawal fees
+        const totalDeposits = td._sum.amount || 0;
+        const netRevenue = totalDeposits - totalWithdrawals - withdrawalFees;
+        return res.json({ totalUsers: tu, onlineUsers: as, newUsersToday: nut, verifiedUsers: vu, pendingVerification: pv, suspendedBanned: sb, totalDeposits, totalWithdrawals, withdrawalFees, netRevenue, totalWelcomeBonuses: wb._sum.amount || 0, totalReferralCommissions: rc._sum.commissionAmount || 0, totalWalletBalance, activeVIPMembers: av, activeInvestmentOrders: ao, totalInvestedAmount: ia._sum.buyAmount || 0, dailyProfitDistributedToday: dp._sum.amount || 0, investmentsCompletingToday: ct, runningInvestmentPlans: rp, pendingDeposits: pd, pendingWithdrawals: pw, pendingKYC: pk, failedTransactions: ft, pendingSupportRequests: st, lastUpdated: new Date().toISOString() });
+      } catch (e) { console.error('Admin dashboard error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
 
     if (m === 'GET' && p === '/api/admin/users') {
