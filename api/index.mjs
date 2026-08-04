@@ -799,7 +799,7 @@ app.use('/api', async (req, res) => {
     if (m === 'GET' && p === '/api/admin/agents') {
       try {
         const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
-        const agents = await prisma.agentProfile.findMany({ orderBy: { id: 'desc' }, include: { user: { select: { fullName: true, email: true, phone: true, displayId: true, verificationStatus: true, createdAt: true } }, referrals: true, commissions: true } });
+        const agents = await prisma.agentProfile.findMany({ orderBy: { id: 'desc' }, include: { user: { select: { fullName: true, email: true, phone: true, displayId: true, verificationStatus: true, createdAt: true, invitationCode: true } }, referrals: true, commissions: true } });
         const enriched = await Promise.all(agents.map(async (a) => {
           const referredUserIds = a.referrals.map(r => r.userId);
           const users = referredUserIds.length ? await prisma.user.findMany({ where: { id: { in: referredUserIds } }, select: { id: true, verificationStatus: true, deposits: { where: { status: 'SUCCESS' }, select: { amount: true } }, withdrawals: { where: { status: 'SUCCESS' }, select: { amount: true } } } }) : [];
@@ -828,8 +828,27 @@ app.use('/api', async (req, res) => {
       catch { return res.status(500).json({ error: 'Failed' }); }
     }
     if (m === 'GET' && p.startsWith('/api/admin/agents/') && !p.includes('/referrals') && !p.includes('/commissions') && !p.endsWith('/force-logout') && !p.endsWith('/reset-code') && !p.endsWith('/reset-password') && !p.endsWith('/suspend') && !p.endsWith('/ban') && !p.endsWith('/reactivate')) {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const a = await prisma.agentProfile.findUnique({ where: { id }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(a || { error: 'Not found' }); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const id = p.split('/')[4];
+        const a = await prisma.agentProfile.findUnique({
+          where: { id },
+          include: {
+            user: { select: { id: true, displayId: true, fullName: true, email: true, phone: true, invitationCode: true, verificationStatus: true, verifiedAt: true, createdAt: true, registrationIp: true, deviceFingerprint: true, userAgent: true, wallet: { select: { main: true, semWallet: true, ongoing: true } } } },
+            referrals: { orderBy: { registeredDate: 'desc' } },
+            commissions: { orderBy: { createdAt: 'desc' } },
+          },
+        });
+        if (!a) return res.status(404).json({ error: 'Not found' });
+        // Enrich with deposits, withdrawals, transactions, sessions for the agent's user
+        const [deposits, withdrawals, transactions, sessions] = await Promise.all([
+          prisma.deposit.findMany({ where: { userId: a.userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
+          prisma.withdrawal.findMany({ where: { userId: a.userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
+          prisma.transaction.findMany({ where: { userId: a.userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
+          prisma.userSession.findMany({ where: { userId: a.userId }, orderBy: { createdAt: 'desc' }, take: 20 }),
+        ]);
+        return res.json({ ...a, deposits, withdrawals, transactions, sessions });
+      } catch (e) { console.error('Get agent profile error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
 
     // ============ NOT FOUND ============

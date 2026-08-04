@@ -75,6 +75,31 @@ export const AdminAgents: React.FC = React.memo(() => {
     }
   };
 
+  // Safe date formatting - never render "Invalid Date"
+  const formatDate = (value: any): string => {
+    if (!value) return '—';
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const formatDateTime = (value: any): string => {
+    if (!value) return '—';
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const formatCurrency = (value: any): string => {
+    const n = Number(value || 0);
+    return isNaN(n) ? '₱0' : `₱${n.toLocaleString()}`;
+  };
+
+  const verificationLabel = (v: any): { text: string; color: string } => {
+    if (v === 'APPROVED') return { text: 'Verified', color: '#10B981' };
+    if (v === 'PENDING') return { text: 'Pending', color: '#F59E0B' };
+    if (v === 'REJECTED') return { text: 'Rejected', color: '#EF4444' };
+    return { text: 'None', color: '#6B7280' };
+  };
+
   const styles = {
     container: { padding: '24px', maxWidth: '1400px', margin: '0 auto', width: '100%' },
     header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap' as const, gap: '12px' },
@@ -167,25 +192,25 @@ export const AdminAgents: React.FC = React.memo(() => {
                   <td style={{ ...styles.td, fontWeight: 500, color: '#FFFFFF' }}>{agent.user?.fullName || agent.fullName || '—'}</td>
                   <td style={styles.td}>{agent.user?.email || agent.email || '—'}</td>
                   <td style={styles.td}>{agent.user?.phone || '—'}</td>
-                  <td style={styles.td}><span style={{ fontFamily: "'Courier New', monospace", color: '#60A5FA' }}>{agent.agentCode}</span></td>
+                  <td style={styles.td}><span style={{ fontFamily: "'Courier New', monospace", color: '#60A5FA' }}>{agent.user?.invitationCode || agent.agentCode || '—'}</span></td>
                   <td style={styles.td}>{agent.totalReferrals ?? agent.referrals?.length ?? 0}</td>
                   <td style={styles.td}>{agent.usersWithDeposit ?? agent.qualifiedDeposits ?? 0}</td>
-                  <td style={styles.td}>₱{(agent.totalDeposits ?? 0).toLocaleString()}</td>
-                  <td style={styles.td}>₱{(agent.totalCommission ?? 0).toLocaleString()}</td>
-                  <td style={styles.td}>₱{(agent.availableBalance ?? 0).toLocaleString()}</td>
+                  <td style={styles.td}>{formatCurrency(agent.totalDeposits)}</td>
+                  <td style={styles.td}>{formatCurrency(agent.totalCommission)}</td>
+                  <td style={styles.td}>{formatCurrency(agent.availableBalance)}</td>
                   <td style={styles.td}>
                     <span style={styles.badge(agent.status === 'active' ? '#10B981' : agent.status === 'suspended' ? '#F59E0B' : '#EF4444')}>
                       {agent.status || 'active'}
                     </span>
                   </td>
                   <td style={styles.td}>
-                    <span style={styles.badge(agent.user?.verificationStatus === 'APPROVED' ? '#10B981' : agent.user?.verificationStatus === 'PENDING' ? '#F59E0B' : '#6B7280')}>
-                      {agent.user?.verificationStatus === 'APPROVED' ? 'Verified' : agent.user?.verificationStatus === 'PENDING' ? 'Pending' : 'Rejected'}
+                    <span style={styles.badge(verificationLabel(agent.user?.verificationStatus).color)}>
+                      {verificationLabel(agent.user?.verificationStatus).text}
                     </span>
                   </td>
-                  <td style={styles.td}>{agent.user?.createdAt ? new Date(agent.user.createdAt).toLocaleDateString() : '—'}</td>
+                  <td style={styles.td}>{formatDate(agent.user?.createdAt)}</td>
                   <td style={styles.td}>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '80px' }}>
                       <button style={styles.actionBtn('#0066FF')} onClick={() => handleViewProfile(agent.id)}>View</button>
                       <button style={styles.actionBtn('#F59E0B')} onClick={() => handleAction('suspend', agent.id)}>Suspend</button>
                       <button style={styles.actionBtn('#EF4444')} onClick={() => handleAction('ban', agent.id)}>Ban</button>
@@ -235,20 +260,20 @@ export const AdminAgents: React.FC = React.memo(() => {
               </div>
 
               {/* Tabs */}
-              <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '12px' }}>
-                {['overview', 'commissions', 'referrals', 'tree'].map(tab => (
+              <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '12px', flexWrap: 'wrap' }}>
+                {['overview', 'wallet', 'referrals', 'commissions', 'deposits', 'withdrawals', 'transactions', 'loginhistory', 'verification'].map(tab => (
                   <button
                     key={tab}
                     onClick={() => setDetailTab(tab)}
                     style={{
-                      padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                      padding: '8px 14px', borderRadius: '8px', border: 'none', cursor: 'pointer',
                       background: detailTab === tab ? 'rgba(0,102,255,0.15)' : 'transparent',
                       color: detailTab === tab ? '#0066FF' : 'rgba(255,255,255,0.5)',
-                      fontSize: '13px', fontWeight: detailTab === tab ? 600 : 400,
+                      fontSize: '12px', fontWeight: detailTab === tab ? 600 : 400,
                       fontFamily: "'Inter', sans-serif", textTransform: 'capitalize' as const,
                     }}
                   >
-                    {tab === 'tree' ? 'Referral Tree' : tab}
+                    {tab === 'loginhistory' ? 'Login History' : tab}
                   </button>
                 ))}
               </div>
@@ -310,7 +335,7 @@ export const AdminAgents: React.FC = React.memo(() => {
                         </div>
                         <div style={styles.statCard}>
                           <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Registered</p>
-                          <p style={{ fontSize: '13px', color: '#FFFFFF' }}>{new Date(agentDetail.user.createdAt).toLocaleDateString()}</p>
+                          <p style={{ fontSize: '13px', color: '#FFFFFF' }}>{formatDate(agentDetail.user.createdAt)}</p>
                         </div>
                         <div style={styles.statCard}>
                           <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Total Referrals</p>
@@ -319,6 +344,210 @@ export const AdminAgents: React.FC = React.memo(() => {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {detailTab === 'wallet' && (
+                <div>
+                  <h3 style={styles.sectionTitle}>Wallet Balances</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px', marginBottom: '24px' }}>
+                    <div style={styles.statCard}>
+                      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Main Wallet</p>
+                      <p style={{ fontSize: '16px', fontWeight: 700, color: '#0066FF' }}>{formatCurrency(agentDetail.user?.wallet?.main)}</p>
+                    </div>
+                    <div style={styles.statCard}>
+                      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>SemWallet</p>
+                      <p style={{ fontSize: '16px', fontWeight: 700, color: '#10B981' }}>{formatCurrency(agentDetail.user?.wallet?.semWallet)}</p>
+                    </div>
+                    <div style={styles.statCard}>
+                      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Ongoing Wallet</p>
+                      <p style={{ fontSize: '16px', fontWeight: 700, color: '#F59E0B' }}>{formatCurrency(agentDetail.user?.wallet?.ongoing)}</p>
+                    </div>
+                    <div style={styles.statCard}>
+                      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Available Commission</p>
+                      <p style={{ fontSize: '16px', fontWeight: 700, color: '#10B981' }}>{formatCurrency(agentDetail.availableBalance)}</p>
+                    </div>
+                    <div style={styles.statCard}>
+                      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Pending Commission</p>
+                      <p style={{ fontSize: '16px', fontWeight: 700, color: '#F59E0B' }}>{formatCurrency(agentDetail.pendingCommission)}</p>
+                    </div>
+                    <div style={styles.statCard}>
+                      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Total Commission Earned</p>
+                      <p style={{ fontSize: '16px', fontWeight: 700, color: '#10B981' }}>{formatCurrency(agentDetail.totalCommission)}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {detailTab === 'deposits' && (
+                <div>
+                  <h3 style={styles.sectionTitle}>Deposit History ({agentDetail.deposits?.length || 0})</h3>
+                  {agentDetail.deposits?.length > 0 ? (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th style={styles.th}>Date</th>
+                            <th style={styles.th}>Reference</th>
+                            <th style={styles.th}>Method</th>
+                            <th style={styles.th}>Amount</th>
+                            <th style={styles.th}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {agentDetail.deposits.map((d: any) => (
+                            <tr key={d.id}>
+                              <td style={styles.td}>{formatDate(d.createdAt)}</td>
+                              <td style={styles.td}><span style={{ fontFamily: "'Courier New', monospace", fontSize: '11px' }}>{d.reference}</span></td>
+                              <td style={styles.td}>{d.method}</td>
+                              <td style={styles.td}>{formatCurrency(d.amount)}</td>
+                              <td style={styles.td}>
+                                <span style={styles.badge(d.status === 'SUCCESS' ? '#10B981' : d.status === 'PENDING' ? '#F59E0B' : '#EF4444')}>{d.status}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>No deposits yet</p>
+                  )}
+                </div>
+              )}
+
+              {detailTab === 'withdrawals' && (
+                <div>
+                  <h3 style={styles.sectionTitle}>Withdrawal History ({agentDetail.withdrawals?.length || 0})</h3>
+                  {agentDetail.withdrawals?.length > 0 ? (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th style={styles.th}>Date</th>
+                            <th style={styles.th}>Reference</th>
+                            <th style={styles.th}>Method</th>
+                            <th style={styles.th}>Amount</th>
+                            <th style={styles.th}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {agentDetail.withdrawals.map((w: any) => (
+                            <tr key={w.id}>
+                              <td style={styles.td}>{formatDate(w.createdAt)}</td>
+                              <td style={styles.td}><span style={{ fontFamily: "'Courier New', monospace", fontSize: '11px' }}>{w.reference}</span></td>
+                              <td style={styles.td}>{w.method}</td>
+                              <td style={styles.td}>{formatCurrency(w.amount)}</td>
+                              <td style={styles.td}>
+                                <span style={styles.badge(w.status === 'SUCCESS' ? '#10B981' : w.status === 'PENDING' ? '#F59E0B' : '#EF4444')}>{w.status}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>No withdrawals yet</p>
+                  )}
+                </div>
+              )}
+
+              {detailTab === 'transactions' && (
+                <div>
+                  <h3 style={styles.sectionTitle}>Transaction History ({agentDetail.transactions?.length || 0})</h3>
+                  {agentDetail.transactions?.length > 0 ? (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th style={styles.th}>Date</th>
+                            <th style={styles.th}>Type</th>
+                            <th style={styles.th}>Reference</th>
+                            <th style={styles.th}>Amount</th>
+                            <th style={styles.th}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {agentDetail.transactions.map((t: any) => (
+                            <tr key={t.id}>
+                              <td style={styles.td}>{formatDate(t.createdAt)}</td>
+                              <td style={styles.td}>{t.type}</td>
+                              <td style={styles.td}><span style={{ fontFamily: "'Courier New', monospace", fontSize: '11px' }}>{t.reference}</span></td>
+                              <td style={styles.td}>{formatCurrency(t.amount)}</td>
+                              <td style={styles.td}>
+                                <span style={styles.badge(t.status === 'SUCCESS' ? '#10B981' : t.status === 'PENDING' ? '#F59E0B' : '#EF4444')}>{t.status}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>No transactions yet</p>
+                  )}
+                </div>
+              )}
+
+              {detailTab === 'loginhistory' && (
+                <div>
+                  <h3 style={styles.sectionTitle}>Login History ({agentDetail.sessions?.length || 0})</h3>
+                  {agentDetail.sessions?.length > 0 ? (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th style={styles.th}>Login Time</th>
+                            <th style={styles.th}>Expires</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {agentDetail.sessions.map((s: any) => (
+                            <tr key={s.id}>
+                              <td style={styles.td}>{formatDateTime(s.createdAt)}</td>
+                              <td style={styles.td}>{formatDateTime(s.expiresAt)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>No login history</p>
+                  )}
+                </div>
+              )}
+
+              {detailTab === 'verification' && (
+                <div>
+                  <h3 style={styles.sectionTitle}>Verification</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
+                    <div style={styles.statCard}>
+                      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Email</p>
+                      <p style={{ fontSize: '13px', color: '#FFFFFF' }}>{agentDetail.user?.email || '—'}</p>
+                    </div>
+                    <div style={styles.statCard}>
+                      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Phone</p>
+                      <p style={{ fontSize: '13px', color: '#FFFFFF' }}>{agentDetail.user?.phone || '—'}</p>
+                    </div>
+                    <div style={styles.statCard}>
+                      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>KYC Status</p>
+                      <span style={styles.badge(verificationLabel(agentDetail.user?.verificationStatus).color)}>{verificationLabel(agentDetail.user?.verificationStatus).text}</span>
+                    </div>
+                    <div style={styles.statCard}>
+                      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Verified At</p>
+                      <p style={{ fontSize: '13px', color: '#FFFFFF' }}>{formatDateTime(agentDetail.user?.verifiedAt)}</p>
+                    </div>
+                    <div style={styles.statCard}>
+                      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Registration IP</p>
+                      <p style={{ fontSize: '13px', color: '#FFFFFF' }}>{agentDetail.user?.registrationIp || '—'}</p>
+                    </div>
+                    <div style={styles.statCard}>
+                      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Device Fingerprint</p>
+                      <p style={{ fontSize: '13px', color: '#FFFFFF', wordBreak: 'break-all' }}>{agentDetail.user?.deviceFingerprint || '—'}</p>
+                    </div>
+                    <div style={styles.statCard}>
+                      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>User Agent</p>
+                      <p style={{ fontSize: '13px', color: '#FFFFFF', wordBreak: 'break-all' }}>{agentDetail.user?.userAgent || '—'}</p>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -342,7 +571,7 @@ export const AdminAgents: React.FC = React.memo(() => {
                             <tr key={ref.id}>
                               <td style={styles.td}>{ref.fullName}</td>
                               <td style={styles.td}>{ref.email}</td>
-                              <td style={styles.td}>{new Date(ref.registeredDate).toLocaleDateString()}</td>
+                              <td style={styles.td}>{formatDate(ref.registeredDate)}</td>
                               <td style={styles.td}>{ref.firstDeposit ? `₱${ref.firstDeposit}` : '—'}</td>
                               <td style={styles.td}>
                                 <span style={styles.badge(ref.status === 'COMMISSION_PAID' ? '#10B981' : '#F59E0B')}>
@@ -378,7 +607,7 @@ export const AdminAgents: React.FC = React.memo(() => {
                         <tbody>
                           {agentDetail.commissions.map((c: any) => (
                             <tr key={c.id}>
-                              <td style={styles.td}>{new Date(c.createdAt).toLocaleDateString()}</td>
+                              <td style={styles.td}>{formatDate(c.createdAt)}</td>
                               <td style={styles.td}>{c.referredName}</td>
                               <td style={styles.td}>₱{c.depositAmount.toLocaleString()}</td>
                               <td style={styles.td}>{Math.round(c.commissionRate * 100)}%</td>
