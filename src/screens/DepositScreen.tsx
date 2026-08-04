@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { colors, typography, borderRadius } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { transactionService } from '../services/transactionService';
-import { PaymentGatewayScreen } from './PaymentGatewayScreen';
 import { Button } from '../components/Button';
 import { GlassCard } from '../components/GlassCard';
 import { FORMAT_CURRENCY } from '../constants';
@@ -32,7 +31,6 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
   const [result, setResult] = useState<{ ref: string; id: string } | null>(null);
   const [paymongoFailed, setPaymongoFailed] = useState(false);
   const [customError, setCustomError] = useState<string | null>(null);
-  const [gateway, setGateway] = useState<{ reference: string; amount: number; method: string } | null>(null);
 
   const numericAmount = parseFloat(amount) || 0;
 
@@ -67,65 +65,38 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
     setCustomError(null);
     setIsProcessing(true);
     try {
-      // Try create a payment gateway checkout session
+      // Create a real Moxsys checkout session via backend only
       const checkout = await transactionService.createPayMongoCheckout(method, numericAmount);
-      // If checkout URL is a local simulated gateway, show the payment gateway screen inline
-      if (checkout.checkoutUrl.includes('/payment-gateway')) {
-        setGateway({ reference: checkout.reference, amount: numericAmount, method });
-        return;
-      }
-      // Otherwise redirect to the external gateway's hosted checkout page
       setResult({ ref: checkout.reference, id: checkout.sessionId });
-      window.location.href = checkout.checkoutUrl;
-    } catch (pgError: any) {
-      // If the gateway is not configured/available, fall back to a manual PENDING deposit
-      // that the admin can approve. Never dead-end the user.
-      console.warn('Payment gateway unavailable, falling back to manual deposit:', pgError?.message || pgError);
-      setPaymongoFailed(true);
-      try {
-        const tx = await transactionService.createDeposit(user.id, method, numericAmount);
-        setResult({ ref: tx.reference, id: tx.id });
-      } catch (e: any) {
-        setCustomError(e.message || 'Failed to create deposit');
+      // Redirect to the REAL Moxsys checkout URL returned by the provider
+      if (checkout.checkoutUrl) {
+        window.location.href = checkout.checkoutUrl;
       }
+    } catch (e: any) {
+      // Show the EXACT error from the backend/Moxsys - never silently fall back
+      console.error('Moxsys checkout error:', e?.message || e);
+      setCustomError(e.message || 'Failed to connect to payment gateway');
+      setStep('form');
     } finally {
       setIsProcessing(false);
     }
   }, [user, method, numericAmount]);
 
-  const handleSimulateSuccess = useCallback(() => {
+  const handleCheckStatus = useCallback(async () => {
     if (!user || !result) return;
-    transactionService.confirmDeposit(result.id, user.id, numericAmount);
-    onBack();
-  }, [user, result, numericAmount, onBack]);
-
-  const handleGatewayComplete = useCallback((success: boolean) => {
-    setGateway(null);
-    if (success) {
-      // Small delay so the user sees the success state
-      setTimeout(() => onBack(), 1500);
-    } else {
-      onBack();
+    try {
+      const status = await transactionService.checkPayMongoStatus(result.ref);
+      if (status.status === 'SUCCESS' || status.status === 'success') {
+        onBack();
+      } else {
+        setCustomError('Payment still pending. Please complete the payment at Moxsys.');
+      }
+    } catch (e: any) {
+      setCustomError(e.message || 'Failed to check payment status');
     }
-  }, [onBack]);
-
-  const handleGatewayCancel = useCallback(() => {
-    setGateway(null);
-  }, []);
+  }, [user, result, onBack]);
 
   if (!user) return null;
-
-  if (gateway) {
-    return (
-      <PaymentGatewayScreen
-        reference={gateway.reference}
-        amount={gateway.amount}
-        method={gateway.method}
-        onComplete={handleGatewayComplete}
-        onCancel={handleGatewayCancel}
-      />
-    );
-  }
 
   return (
     <div style={{
@@ -162,8 +133,8 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
               <Row label="Method" value={method || ''} />
               <Row label="Status" value="Pending" />
             </div>
-            <p style={{ fontSize: typography.sm, color: colors.textTertiary, fontFamily: typography.fontFamily }}>Complete the payment within 5 minutes or it will expire.</p>
-            <Button variant="primary" size="md" fullWidth onClick={handleSimulateSuccess}>Simulate Payment Success</Button>
+            <p style={{ fontSize: typography.sm, color: colors.textTertiary, fontFamily: typography.fontFamily }}>You will be redirected to the Moxsys payment page to complete your payment. If you were not redirected, click the button below.</p>
+            <Button variant="primary" size="md" fullWidth onClick={handleCheckStatus}>Check Payment Status</Button>
           </motion.div>
         ) : (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(16px, 2.5vh, 24px)' }}>

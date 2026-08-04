@@ -292,65 +292,23 @@ app.use('/api', async (req, res) => {
     }
 
     // ============ MOXSYS PAYMENT GATEWAY ============
-    // POST /api/payments/moxsys/checkout - Create a payment checkout session
-    // Supports two modes:
-    //   1. SIMULATED (PAYMENT_GATEWAY_MODE=simulated) - local test gateway, no external API needed
-    //   2. LIVE (PAYMENT_GATEWAY_MODE=live) - real Moxsys API
+    // POST /api/payments/moxsys/checkout - Create a payment checkout session via real Moxsys API
     if (m === 'POST' && p === '/api/payments/moxsys/checkout') {
       try {
         const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
         const { amount, method } = body;
         if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
-        const parsedAmount = Math.round(parseFloat(amount) * 100); // gateway uses centavos (integer)
-        const gatewayMode = process.env.PAYMENT_GATEWAY_MODE || 'simulated';
+
+        const parsedAmount = Math.round(parseFloat(amount) * 100); // Moxsys uses centavos (integer)
+        const moxsysApiKey = process.env.MOXSYS_API_KEY;
+        const moxsysMode = process.env.MOXSYS_MODE || 'sandbox';
+        if (!moxsysApiKey) {
+          console.error('Moxsys API key not configured. Set MOXSYS_API_KEY in environment.');
+          return res.status(500).json({ error: 'Payment gateway not configured. Missing MOXSYS_API_KEY.' });
+        }
 
         const ref = 'DEP-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
         const baseUrl = process.env.FRONTEND_URL || 'https://coltionproduct.vercel.app';
-
-        // Create deposit record FIRST (shared by both modes)
-        const deposit = await prisma.$transaction(async (tx) => {
-          const d = await tx.deposit.create({
-            data: {
-              userId: u.id,
-              amount: parseFloat(amount),
-              method: method || 'moxsys',
-              reference: ref,
-              proofOfPayment: '',
-              status: 'PENDING',
-            },
-          });
-          await tx.transaction.create({
-            data: {
-              userId: u.id,
-              type: 'DEPOSIT',
-              amount: parseFloat(amount),
-              method: method || 'moxsys',
-              reference: ref,
-              status: 'PENDING',
-            },
-          });
-          return d;
-        });
-
-        // ===== SIMULATED MODE (default) =====
-        // No external API call - returns a local payment gateway page URL
-        if (gatewayMode === 'simulated') {
-          const checkoutUrl = `${baseUrl}/payment-gateway?ref=${encodeURIComponent(ref)}&amount=${parseFloat(amount)}&method=${encodeURIComponent(method || 'moxsys')}`;
-          return res.status(201).json({
-            id: deposit.id,
-            reference: ref,
-            checkoutUrl,
-            sessionId: deposit.id,
-            amount: parseFloat(amount),
-            method: method || 'moxsys',
-            status: 'PENDING',
-          });
-        }
-
-        // ===== LIVE MODE (real Moxsys API) =====
-        const moxsysApiKey = process.env.MOXSYS_API_KEY;
-        const moxsysMode = process.env.MOXSYS_MODE || 'sandbox';
-        if (!moxsysApiKey) return res.status(500).json({ error: 'Payment gateway not configured. Set MOXSYS_API_KEY or use PAYMENT_GATEWAY_MODE=simulated' });
 
         // Map platform methods to Moxsys payment_method values
         const methodMap = {
@@ -373,8 +331,24 @@ app.use('/api', async (req, res) => {
               return v.toString(16);
             });
 
+        // Log the exact request being sent (mask API key)
+        const moxsysUrl = `https://platform.moxsys.io/api/v1/${moxsysMode}/invoices/create`;
+        const moxsysPayload = {
+          external_id: ref,
+          amount: parsedAmount,
+          payer_email: u.email || '',
+          description: `Wallet Deposit - ${ref}`,
+          success_redirect_url: `${baseUrl}/payment-gateway?status=success&ref=${encodeURIComponent(ref)}`,
+          failure_redirect_url: `${baseUrl}/payment-gateway?status=failed&ref=${encodeURIComponent(ref)}`,
+          payment_method: paymentMethod,
+          callback_url: `${baseUrl}/api/payments/moxsys/webhook`,
+          metadata: { reference: ref, userId: u.id },
+        };
+        console.log('[Moxsys] POST', moxsysUrl);
+        console.log('[Moxsys] Payload:', JSON.stringify(moxsysPayload));
+
         // Create Moxsys invoice
-        const moxsysRes = await fetch(`https://platform.moxsys.io/api/v1/${moxsysMode}/invoices/create`, {
+        const moxsysRes = await fetch(moxsysUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -382,33 +356,66 @@ app.use('/api', async (req, res) => {
             'Authorization': 'Bearer ' + moxsysApiKey,
             'Idempotency-Key': idempotencyKey,
           },
-          body: JSON.stringify({
-            external_id: ref,
-            amount: parsedAmount,
-            payer_email: u.email || '',
-            description: `Wallet Deposit - ${ref}`,
-            success_redirect_url: `${baseUrl}/payment-gateway?status=success&ref=${ref}`,
-            failure_redirect_url: `${baseUrl}/payment-gateway?status=failed&ref=${ref}`,
-            payment_method: paymentMethod,
-            callback_url: `${baseUrl}/api/payments/moxsys/webhook`,
-            metadata: { reference: ref, userId: u.id },
-          }),
+          body: JSON.stringify(moxsysPayload),
         });
 
-        const moxsysData = await moxsysRes.json();
+        const moxsysText = await moxsysRes.text();
+        console.log('[Moxsys] HTTP Status:', moxsysRes.status);
+        console.log('[Moxsys] Response:', moxsysText.substring(0, 2000));
+
+        // Parse response - log raw body on ANY error (auth, validation, signature, timeout)
+        let moxsysData;
+        try { moxsysData = JSON.parse(moxsysText); } catch { moxsysData = { raw: moxsysText }; }
+
         if (!moxsysRes.ok) {
-          console.error('Moxsys invoice error:', JSON.stringify(moxsysData));
-          return res.status(400).json({ error: moxsysData?.message || moxsysData?.errors?.[0]?.message || 'Payment gateway error' });
+          const errDetail = {
+            httpStatus: moxsysRes.status,
+            responseBody: moxsysData,
+            requestUrl: moxsysUrl,
+            requestPayload: moxsysPayload,
+          };
+          console.error('[Moxsys] REJECTED:', JSON.stringify(errDetail, null, 2));
+          // Return the EXACT Moxsys error to the frontend - never silently fall back
+          return res.status(400).json({
+            error: moxsysData?.message || moxsysData?.errors?.[0]?.message || 'Payment gateway error',
+            provider: 'Moxsys',
+            providerStatus: moxsysRes.status,
+            providerResponse: moxsysData,
+          });
         }
 
         const invoice = moxsysData.data || moxsysData;
-        const invoiceUrl = invoice.invoice_url;
-        const invoiceId = invoice.id;
+        const invoiceUrl = invoice.invoice_url || invoice.checkout_url || '';
+        const invoiceId = invoice.id || '';
+        const qrCode = invoice.qr_code || invoice.qrString || invoice.qr || null;
+        const deeplink = invoice.deeplink || invoice.deep_link || null;
 
-        // Update deposit record with Moxsys invoice reference
-        await prisma.deposit.update({
-          where: { id: deposit.id },
-          data: { proofOfPayment: invoiceId || '' },
+        // Log the provider response for debugging
+        console.log('[Moxsys] Invoice created:', JSON.stringify({ id: invoiceId, url: invoiceUrl, hasQR: !!qrCode, hasDeeplink: !!deeplink }));
+
+        // Create deposit record with Moxsys invoice reference
+        const deposit = await prisma.$transaction(async (tx) => {
+          const d = await tx.deposit.create({
+            data: {
+              userId: u.id,
+              amount: parseFloat(amount),
+              method: method || 'moxsys',
+              reference: ref,
+              proofOfPayment: invoiceId || '',
+              status: 'PENDING',
+            },
+          });
+          await tx.transaction.create({
+            data: {
+              userId: u.id,
+              type: 'DEPOSIT',
+              amount: parseFloat(amount),
+              method: method || 'moxsys',
+              reference: ref,
+              status: 'PENDING',
+            },
+          });
+          return d;
         });
 
         return res.status(201).json({
@@ -416,91 +423,18 @@ app.use('/api', async (req, res) => {
           reference: ref,
           checkoutUrl: invoiceUrl,
           sessionId: invoiceId,
+          qrCode,
+          deeplink,
           amount: parseFloat(amount),
           method: method || 'moxsys',
           status: 'PENDING',
+          provider: 'Moxsys',
+          providerResponse: invoice,
         });
-      } catch (e) { console.error('Moxsys invoice error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed to create payment' }); }
-    }
-
-    // POST /api/payments/simulate/pay - Simulate a successful payment (marks deposit as SUCCESS)
-    if (m === 'POST' && p === '/api/payments/simulate/pay') {
-      try {
-        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
-        const { reference } = body;
-        if (!reference) return res.status(400).json({ error: 'Reference required' });
-
-        const deposit = await prisma.deposit.findFirst({ where: { reference, userId: u.id } });
-        if (!deposit) return res.status(404).json({ error: 'Deposit not found' });
-        if (deposit.status !== 'PENDING') return res.status(400).json({ error: 'Deposit already processed' });
-
-        await prisma.$transaction(async (tx) => {
-          await tx.deposit.update({
-            where: { id: deposit.id },
-            data: { status: 'SUCCESS', completedAt: new Date(), approvedBy: 'Payment Gateway (Simulated)' },
-          });
-          // Business rule: Deposits go to SemWallet
-          await tx.wallet.update({ where: { userId: deposit.userId }, data: { semWallet: { increment: deposit.amount } } });
-          await tx.transaction.updateMany({
-            where: { reference: deposit.reference },
-            data: { status: 'SUCCESS', completedAt: new Date() },
-          });
-          await tx.notification.create({
-            data: { userId: deposit.userId, type: 'DEPOSIT_APPROVED', message: `Your deposit of ₱${deposit.amount.toLocaleString()} has been approved.`, read: false },
-          });
-
-          // Referral commission: 30% of FIRST approved deposit only (same as admin approval)
-          const depositor = await tx.user.findUnique({ where: { id: deposit.userId }, select: { referrerAgentId: true, fullName: true } });
-          if (depositor?.referrerAgentId) {
-            const approvedDepositCount = await tx.deposit.count({ where: { userId: deposit.userId, status: 'SUCCESS' } });
-            if (approvedDepositCount === 1) {
-              const settings = await tx.platformSettings.findFirst();
-              const rate = (settings?.referralCommissionPercent || 30) / 100;
-              const agent = await tx.agentProfile.findUnique({ where: { id: depositor.referrerAgentId } });
-              if (agent) {
-                const existingCommission = await tx.agentCommission.findFirst({ where: { agentId: agent.id, referredUserId: deposit.userId } });
-                if (!existingCommission) {
-                  const commission = Math.round(deposit.amount * rate * 100) / 100;
-                  await tx.agentCommission.create({ data: { agentId: agent.id, referredUserId: deposit.userId, referredName: depositor.fullName || 'User', depositAmount: deposit.amount, commissionRate: rate, commissionAmount: commission } });
-                  await tx.agentProfile.update({ where: { id: agent.id }, data: { totalCommission: { increment: commission }, qualifiedDeposits: { increment: 1 }, availableBalance: { increment: commission } } });
-                  await tx.agentReferral.updateMany({ where: { agentId: agent.id, userId: deposit.userId }, data: { status: 'COMMISSION_PAID', firstDeposit: deposit.amount, commission } });
-                  await tx.wallet.update({ where: { userId: agent.userId }, data: { main: { increment: commission } } });
-                  await tx.transaction.create({ data: { userId: agent.userId, type: 'REFERRAL_COMMISSION', amount: commission, method: 'system', reference: 'COMM-' + Date.now(), status: 'SUCCESS' } });
-                  await tx.user.update({ where: { id: agent.userId }, data: { totalReferralEarnings: { increment: commission } } });
-                }
-              }
-            }
-          }
-        });
-
-        return res.json({ success: true, reference: deposit.reference, status: 'SUCCESS' });
-      } catch (e) { console.error('Simulate payment error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed to simulate payment' }); }
-    }
-
-    // POST /api/payments/simulate/fail - Simulate a failed payment
-    if (m === 'POST' && p === '/api/payments/simulate/fail') {
-      try {
-        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
-        const { reference } = body;
-        if (!reference) return res.status(400).json({ error: 'Reference required' });
-
-        const deposit = await prisma.deposit.findFirst({ where: { reference, userId: u.id } });
-        if (!deposit) return res.status(404).json({ error: 'Deposit not found' });
-        if (deposit.status !== 'PENDING') return res.status(400).json({ error: 'Deposit already processed' });
-
-        await prisma.$transaction(async (tx) => {
-          await tx.deposit.update({
-            where: { id: deposit.id },
-            data: { status: 'FAILED', completedAt: new Date(), approvedBy: 'Payment Gateway (Simulated)', rejectionReason: 'Payment declined by user' },
-          });
-          await tx.transaction.updateMany({
-            where: { reference: deposit.reference },
-            data: { status: 'FAILED', completedAt: new Date() },
-          });
-        });
-
-        return res.json({ success: true, reference: deposit.reference, status: 'FAILED' });
-      } catch (e) { console.error('Simulate fail error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed to simulate failure' }); }
+      } catch (e) {
+        console.error('Moxsys invoice error:', e?.message || e);
+        return res.status(500).json({ error: e?.message || 'Failed to create payment' });
+      }
     }
 
     // GET /api/payments/moxsys/status/:ref - Check payment status
@@ -514,24 +448,55 @@ app.use('/api', async (req, res) => {
       } catch { return res.status(500).json({ error: 'Failed to check payment status' }); }
     }
 
-    // POST /api/payments/moxsys/webhook - Moxsys webhook for payment success
+    // POST /api/payments/moxsys/webhook - Moxsys callback for payment status updates
+    // Handles: paid -> SUCCESS, failed -> FAILED, cancelled -> FAILED, expired -> FAILED
     if (m === 'POST' && p === '/api/payments/moxsys/webhook') {
       try {
         const event = body;
-        const status = event?.status || '';
+        const status = (event?.status || '').toLowerCase();
         const externalId = event?.external_id || '';
         const paidAmount = event?.paid_amount || event?.amount || 0;
 
-        // Only process successful payment events
-        if (status === 'paid' && externalId) {
-          // Find deposit by external reference
-          const deposit = await prisma.deposit.findFirst({ where: { reference: externalId } });
-          if (deposit && deposit.status === 'PENDING') {
-            await prisma.$transaction(async (tx) => {
-              await tx.deposit.update({
-                where: { id: deposit.id },
-                data: { status: 'SUCCESS', completedAt: new Date(), approvedBy: 'Moxsys' },
-              });
+        console.log('[Moxsys Webhook] Received:', JSON.stringify(event));
+
+        if (!externalId) {
+          return res.json({ status: 'received', error: 'Missing external_id' });
+        }
+
+        // Find deposit by external reference
+        const deposit = await prisma.deposit.findFirst({ where: { reference: externalId } });
+        if (!deposit) {
+          console.warn('[Moxsys Webhook] Deposit not found for reference:', externalId);
+          return res.status(404).json({ error: 'Deposit not found' });
+        }
+
+        // Map Moxsys status to platform status
+        let mappedStatus = null;
+        if (status === 'paid' || status === 'success' || status === 'completed') {
+          mappedStatus = 'SUCCESS';
+        } else if (status === 'failed' || status === 'cancelled' || status === 'canceled' || status === 'expired') {
+          mappedStatus = 'FAILED';
+        }
+
+        if (!mappedStatus) {
+          // Unknown status - ignore but log
+          console.log('[Moxsys Webhook] Unknown status:', status, 'for', externalId);
+          return res.json({ status: 'received' });
+        }
+
+        if (deposit.status === 'PENDING') {
+          await prisma.$transaction(async (tx) => {
+            await tx.deposit.update({
+              where: { id: deposit.id },
+              data: {
+                status: mappedStatus,
+                completedAt: mappedStatus === 'SUCCESS' ? new Date() : deposit.completedAt || new Date(),
+                approvedBy: mappedStatus === 'SUCCESS' ? 'Moxsys' : deposit.approvedBy || 'Moxsys',
+                rejectionReason: mappedStatus === 'FAILED' ? (event?.reason || event?.message || `Payment ${status} by provider`) : deposit.rejectionReason,
+              },
+            });
+
+            if (mappedStatus === 'SUCCESS') {
               // Business rule: Deposits go to SemWallet
               await tx.wallet.update({ where: { userId: deposit.userId }, data: { semWallet: { increment: deposit.amount } } });
               await tx.transaction.updateMany({
@@ -542,10 +507,16 @@ app.use('/api', async (req, res) => {
               await tx.notification.create({
                 data: { userId: deposit.userId, type: 'DEPOSIT_APPROVED', message: `Your deposit of ₱${deposit.amount.toLocaleString()} has been approved.`, read: false },
               });
-            });
-          }
+            } else {
+              await tx.transaction.updateMany({
+                where: { reference: deposit.reference },
+                data: { status: 'FAILED', completedAt: new Date() },
+              });
+            }
+          });
         }
-        return res.json({ status: 'received' });
+
+        return res.json({ status: 'received', depositStatus: mappedStatus, reference: externalId });
       } catch (e) { console.error('Moxsys webhook error:', e?.message || e); return res.status(500).json({ error: 'Webhook processing failed' }); }
     }
 

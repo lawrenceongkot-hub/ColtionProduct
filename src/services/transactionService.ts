@@ -53,29 +53,8 @@ export const transactionService = {
   },
 
   async confirmDeposit(txId: string, userId: string, amount: number): Promise<void> {
-    // Deposits are confirmed by admin in the admin panel
-    // This is a client-side simulation
+    // Deposits are confirmed by the payment gateway webhook or admin in the admin panel
     return;
-  },
-
-  /** Simulate a successful payment for a pending deposit (auto-approves) */
-  async simulatePaymentSuccess(reference: string): Promise<{ success: boolean; status: string }> {
-    try {
-      return await apiService.post<any>('/payments/simulate/pay', { reference });
-    } catch (e: any) {
-      console.error('Simulate payment success error:', e?.message || e);
-      throw new Error(e?.message || 'Failed to simulate payment');
-    }
-  },
-
-  /** Simulate a failed payment for a pending deposit (marks as FAILED) */
-  async simulatePaymentFailure(reference: string): Promise<{ success: boolean; status: string }> {
-    try {
-      return await apiService.post<any>('/payments/simulate/fail', { reference });
-    } catch (e: any) {
-      console.error('Simulate payment failure error:', e?.message || e);
-      throw new Error(e?.message || 'Failed to simulate payment failure');
-    }
   },
 
   async getTransactions(): Promise<Transaction[]> {
