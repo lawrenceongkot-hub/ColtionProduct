@@ -352,7 +352,9 @@ model PlatformSettings {
   // Landing Page Statistics Controls
   landingTotalUsersDisplay     Float   @default(0)
   landingTotalInvestmentsDisplay Float @default(0)
-  landingLatestInvestorCount   Int     @default(5)
+  landingActiveInvestorsDisplay Int    @default(0)
+  landingEnableLatestInvestors Boolean @default(true)
+  landingEnableTopInvestors    Boolean @default(true)
   landingEnableLiveCounter     Boolean @default(true)
   landingEnableAnimatedNumbers Boolean @default(true)
   updatedAt                    DateTime @updatedAt

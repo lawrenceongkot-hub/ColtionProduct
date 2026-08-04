@@ -80,7 +80,9 @@ app.use('/api', async (req, res) => {
         const totalUsers = await prisma.user.count();
         const totalInvestments = await prisma.investmentOrder.aggregate({ _sum: { buyAmount: true }, where: { status: 'ACTIVE' } });
         const activeInvestors = await prisma.investmentOrder.count({ where: { status: 'ACTIVE' } });
-        const investorCount = Math.min(settings?.landingLatestInvestorCount || 5, 10);
+        // Use Active Investors Display from settings, fallback to live count if 0
+        const activeInvestorsDisplay = settings?.landingActiveInvestorsDisplay || activeInvestors;
+        const investorCount = Math.min(activeInvestorsDisplay, 10);
 
         // Generate fake marketing data - NEVER real user data
         const fakeLatestInvestors = generateFakeInvestors(investorCount);
@@ -93,15 +95,16 @@ app.use('/api', async (req, res) => {
           totalUsers,
           totalInvestments: totalInvestments._sum.buyAmount || 0,
           activeInvestors,
-          latestInvestors: fakeLatestInvestors,
-          latestInvestments: fakeLatestInvestors.map(inv => ({ ...inv, plan: 'VIP ' + (Math.floor(Math.random() * 10) + 1) })),
-          topInvestors: fakeTopInvestors,
+          latestInvestors: settings?.landingEnableLatestInvestors !== false ? fakeLatestInvestors : [],
+          latestInvestments: settings?.landingEnableLatestInvestors !== false ? fakeLatestInvestors.map(inv => ({ ...inv, plan: 'VIP ' + (Math.floor(Math.random() * 10) + 1) })) : [],
+          topInvestors: settings?.landingEnableTopInvestors !== false ? fakeTopInvestors : [],
           recentRegistrations: [],
           displaySettings: {
             totalUsersDisplay: settings?.landingTotalUsersDisplay || totalUsers,
             totalInvestmentsDisplay: settings?.landingTotalInvestmentsDisplay || (totalInvestments._sum.buyAmount || 0),
-            activeInvestorsDisplay: settings?.landingLatestInvestorCount || activeInvestors,
-            latestInvestorCount: settings?.landingLatestInvestorCount || 5,
+            activeInvestorsDisplay,
+            enableLatestInvestors: settings?.landingEnableLatestInvestors ?? true,
+            enableTopInvestors: settings?.landingEnableTopInvestors ?? true,
             enableLiveCounter: settings?.landingEnableLiveCounter ?? true,
             enableAnimatedNumbers: settings?.landingEnableAnimatedNumbers ?? true,
           },
@@ -980,7 +983,9 @@ app.use('/api', async (req, res) => {
       try {
         await prisma.$queryRawUnsafe(`ALTER TABLE "PlatformSettings" ADD COLUMN IF NOT EXISTS "landingTotalUsersDisplay" DOUBLE PRECISION NOT NULL DEFAULT 0`);
         await prisma.$queryRawUnsafe(`ALTER TABLE "PlatformSettings" ADD COLUMN IF NOT EXISTS "landingTotalInvestmentsDisplay" DOUBLE PRECISION NOT NULL DEFAULT 0`);
-        await prisma.$queryRawUnsafe(`ALTER TABLE "PlatformSettings" ADD COLUMN IF NOT EXISTS "landingLatestInvestorCount" INTEGER NOT NULL DEFAULT 5`);
+        await prisma.$queryRawUnsafe(`ALTER TABLE "PlatformSettings" ADD COLUMN IF NOT EXISTS "landingActiveInvestorsDisplay" INTEGER NOT NULL DEFAULT 0`);
+        await prisma.$queryRawUnsafe(`ALTER TABLE "PlatformSettings" ADD COLUMN IF NOT EXISTS "landingEnableLatestInvestors" BOOLEAN NOT NULL DEFAULT true`);
+        await prisma.$queryRawUnsafe(`ALTER TABLE "PlatformSettings" ADD COLUMN IF NOT EXISTS "landingEnableTopInvestors" BOOLEAN NOT NULL DEFAULT true`);
         await prisma.$queryRawUnsafe(`ALTER TABLE "PlatformSettings" ADD COLUMN IF NOT EXISTS "landingEnableLiveCounter" BOOLEAN NOT NULL DEFAULT true`);
         await prisma.$queryRawUnsafe(`ALTER TABLE "PlatformSettings" ADD COLUMN IF NOT EXISTS "landingEnableAnimatedNumbers" BOOLEAN NOT NULL DEFAULT true`);
         await prisma.$queryRawUnsafe(`ALTER TABLE "Withdrawal" ADD COLUMN IF NOT EXISTS "fee" DOUBLE PRECISION NOT NULL DEFAULT 0`);

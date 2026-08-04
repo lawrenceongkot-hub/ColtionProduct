@@ -130,18 +130,22 @@ export const AdminSettings: React.FC = React.memo(() => {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <InputField label="Total Users Display" value={String(settings.landingTotalUsersDisplay || '')} onChange={v => updateField('landingTotalUsersDisplay', parseFloat(v) || 0)} placeholder="0 = use actual count" />
           <InputField label="Total Investments Display" value={String(settings.landingTotalInvestmentsDisplay || '')} onChange={v => updateField('landingTotalInvestmentsDisplay', parseFloat(v) || 0)} placeholder="0 = use actual total" />
+          <InputField label="Active Investors Display" value={String(settings.landingActiveInvestorsDisplay || '')} onChange={v => updateField('landingActiveInvestorsDisplay', parseInt(v) || 0)} placeholder="0 = use actual count" />
         </div>
-        <div style={{ maxWidth: '200px', marginBottom: '12px' }}>
-          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 500, marginBottom: '4px' }}>Latest Investor Count</div>
-          <input type="number" min="1" max="20" value={settings.landingLatestInvestorCount || 5} onChange={e => updateField('landingLatestInvestorCount', parseInt(e.target.value) || 5)}
-            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#FFFFFF', fontSize: '13px', fontFamily: "'Inter', sans-serif", outline: 'none' }} />
+        <div style={{ marginBottom: '12px' }}>
+          <Toggle label="Enable Latest Investors" value={settings.landingEnableLatestInvestors ?? true} onChange={v => updateField('landingEnableLatestInvestors', v)}
+            desc="When ON, the Latest Investors section is shown on the landing page" />
         </div>
-        <Toggle label="Enable Live Counter" value={settings.landingEnableLiveCounter ?? true} onChange={v => updateField('landingEnableLiveCounter', v)}
-          desc="When enabled, the landing page fetches live statistics from the backend" />
+        <div style={{ marginBottom: '12px' }}>
+          <Toggle label="Enable Top Investors" value={settings.landingEnableTopInvestors ?? true} onChange={v => updateField('landingEnableTopInvestors', v)}
+            desc="When ON, the Top Investors section is shown on the landing page" />
+        </div>
         <Toggle label="Enable Animated Numbers" value={settings.landingEnableAnimatedNumbers ?? true} onChange={v => updateField('landingEnableAnimatedNumbers', v)}
           desc="When enabled, numbers animate on the landing page" />
+        <Toggle label="Enable Live Counter" value={settings.landingEnableLiveCounter ?? true} onChange={v => updateField('landingEnableLiveCounter', v)}
+          desc="When enabled, the landing page fetches live statistics from the backend" />
         <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginTop: '8px' }}>
-          Set Total Users Display and Total Investments Display to 0 to show actual live values from the database.
+          Set display values to 0 to show actual live values from the database.
         </p>
       </Section>
 

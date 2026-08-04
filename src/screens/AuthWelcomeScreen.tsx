@@ -19,7 +19,9 @@ interface LandingStats {
   displaySettings: {
     totalUsersDisplay: number;
     totalInvestmentsDisplay: number;
-    latestInvestorCount: number;
+    activeInvestorsDisplay: number;
+    enableLatestInvestors: boolean;
+    enableTopInvestors: boolean;
     enableLiveCounter: boolean;
     enableAnimatedNumbers: boolean;
   };
@@ -35,7 +37,9 @@ const DEFAULT_STATS: LandingStats = {
   displaySettings: {
     totalUsersDisplay: 0,
     totalInvestmentsDisplay: 0,
-    latestInvestorCount: 5,
+    activeInvestorsDisplay: 0,
+    enableLatestInvestors: true,
+    enableTopInvestors: true,
     enableLiveCounter: true,
     enableAnimatedNumbers: true,
   },
@@ -207,20 +211,20 @@ export const AuthWelcomeScreen: React.FC<AuthNavigation> = React.memo(({ onNavig
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: typography.xs, color: colors.textTertiary, fontFamily: typography.fontFamily, marginBottom: '4px' }}>Active Investors</div>
                 <div style={{ fontSize: typography.xl, fontWeight: typography.bold, color: colors.warning, fontFamily: typography.fontFamily }}>
-                  <AnimatedNumber value={stats.latestInvestors?.length || 0} enabled={displaySettings?.enableAnimatedNumbers ?? true} />
+                  <AnimatedNumber value={displaySettings?.activeInvestorsDisplay || stats.latestInvestors?.length || 0} enabled={displaySettings?.enableAnimatedNumbers ?? true} />
                 </div>
               </div>
             </GlassCard>
           </div>
 
-          {/* Latest Investors */}
-          {stats.latestInvestors && stats.latestInvestors.length > 0 && (
+          {/* Latest Investors - hidden when toggle is OFF */}
+          {displaySettings?.enableLatestInvestors !== false && stats.latestInvestors && stats.latestInvestors.length > 0 && (
             <GlassCard maxWidth="100%" padding="clamp(14px, 2vw, 20px)">
               <div style={{ fontSize: typography.sm, fontWeight: typography.semibold, color: colors.textPrimary, fontFamily: typography.fontFamily, marginBottom: '12px' }}>
                 Latest Investors
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {stats.latestInvestors.slice(0, displaySettings?.latestInvestorCount || 5).map((inv, i) => (
+                {stats.latestInvestors.slice(0, 10).map((inv, i) => (
                   <div key={inv.id || i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', borderRadius: '8px', background: colors.bgGlassLight }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: colors.gradientBlue, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: typography.xs, fontWeight: typography.bold, color: '#FFFFFF' }}>
@@ -240,8 +244,8 @@ export const AuthWelcomeScreen: React.FC<AuthNavigation> = React.memo(({ onNavig
             </GlassCard>
           )}
 
-          {/* Top Investors */}
-          {stats.topInvestors && stats.topInvestors.length > 0 && (
+          {/* Top Investors - hidden when toggle is OFF */}
+          {displaySettings?.enableTopInvestors !== false && stats.topInvestors && stats.topInvestors.length > 0 && (
             <GlassCard maxWidth="100%" padding="clamp(14px, 2vw, 20px)">
               <div style={{ fontSize: typography.sm, fontWeight: typography.semibold, color: colors.textPrimary, fontFamily: typography.fontFamily, marginBottom: '12px' }}>
                 Top Investors

@@ -47,7 +47,9 @@ export interface PlatformSettings {
   // Landing Page Statistics Controls
   landingTotalUsersDisplay: number;
   landingTotalInvestmentsDisplay: number;
-  landingLatestInvestorCount: number;
+  landingActiveInvestorsDisplay: number;
+  landingEnableLatestInvestors: boolean;
+  landingEnableTopInvestors: boolean;
   landingEnableLiveCounter: boolean;
   landingEnableAnimatedNumbers: boolean;
 }
@@ -98,7 +100,9 @@ export const DEFAULT_SETTINGS: PlatformSettings = {
   // Landing Page Statistics
   landingTotalUsersDisplay: 0,
   landingTotalInvestmentsDisplay: 0,
-  landingLatestInvestorCount: 5,
+  landingActiveInvestorsDisplay: 0,
+  landingEnableLatestInvestors: true,
+  landingEnableTopInvestors: true,
   landingEnableLiveCounter: true,
   landingEnableAnimatedNumbers: true,
 };
@@ -145,7 +149,8 @@ export const settingsService = {
             'passwordMinLength','requireUppercase','requireLowercase','requireNumber','requireSpecialChar',
             'rememberMeDays','twoFactorEnabled','emailVerificationRequired','mobileVerificationRequired',
             'maxUploadSizeMB','allowedImageTypes','allowedDocumentTypes','maxVerificationFileSizeMB',
-            'landingTotalUsersDisplay','landingTotalInvestmentsDisplay','landingLatestInvestorCount',
+            'landingTotalUsersDisplay','landingTotalInvestmentsDisplay','landingActiveInvestorsDisplay',
+            'landingEnableLatestInvestors','landingEnableTopInvestors',
             'landingEnableLiveCounter','landingEnableAnimatedNumbers',
           ].includes(k)
         )
