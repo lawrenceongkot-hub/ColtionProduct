@@ -16,6 +16,7 @@ import { agentRouter } from './routes/agent';
 import { ewalletRouter } from './routes/ewallet';
 import { dashboardRouter } from './routes/dashboard';
 import { adminAgentsRouter } from './routes/adminAgents';
+import { paymentRouter } from './routes/payment';
 import { authenticateToken } from './middleware/auth';
 
 dotenv.config();
@@ -54,6 +55,7 @@ app.use('/api/verification', authenticateToken, verificationRouter);
 app.use('/api/agents', authenticateToken, agentRouter);
 app.use('/api/ewallets', authenticateToken, ewalletRouter);
 app.use('/api/dashboard', authenticateToken, dashboardRouter);
+app.use('/api/payments', authenticateToken, paymentRouter);
 
 // Admin routes
 app.use('/api/admin', adminRouter);

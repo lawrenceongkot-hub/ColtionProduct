@@ -292,17 +292,65 @@ app.use('/api', async (req, res) => {
     }
 
     // ============ MOXSYS PAYMENT GATEWAY ============
-    // POST /api/payments/moxsys/checkout - Create a Moxsys invoice (checkout session)
+    // POST /api/payments/moxsys/checkout - Create a payment checkout session
+    // Supports two modes:
+    //   1. SIMULATED (PAYMENT_GATEWAY_MODE=simulated) - local test gateway, no external API needed
+    //   2. LIVE (PAYMENT_GATEWAY_MODE=live) - real Moxsys API
     if (m === 'POST' && p === '/api/payments/moxsys/checkout') {
       try {
         const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
         const { amount, method } = body;
         if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
-        const parsedAmount = Math.round(parseFloat(amount) * 100); // Moxsys uses centavos (integer)
-        // Use env var if set, otherwise fall back to the configured test key
-        const moxsysApiKey = process.env.MOXSYS_API_KEY || 'Ht23THehMXQmOa9QL91mkAKhmISIaTTATlzaVK43GghH4oW8IU';
-        const moxsysMode = process.env.MOXSYS_MODE || 'sandbox'; // sandbox for testing, live for production
-        if (!moxsysApiKey) return res.status(500).json({ error: 'Payment gateway not configured' });
+        const parsedAmount = Math.round(parseFloat(amount) * 100); // gateway uses centavos (integer)
+        const gatewayMode = process.env.PAYMENT_GATEWAY_MODE || 'simulated';
+
+        const ref = 'DEP-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+        const baseUrl = process.env.FRONTEND_URL || 'https://coltionproduct.vercel.app';
+
+        // Create deposit record FIRST (shared by both modes)
+        const deposit = await prisma.$transaction(async (tx) => {
+          const d = await tx.deposit.create({
+            data: {
+              userId: u.id,
+              amount: parseFloat(amount),
+              method: method || 'moxsys',
+              reference: ref,
+              proofOfPayment: '',
+              status: 'PENDING',
+            },
+          });
+          await tx.transaction.create({
+            data: {
+              userId: u.id,
+              type: 'DEPOSIT',
+              amount: parseFloat(amount),
+              method: method || 'moxsys',
+              reference: ref,
+              status: 'PENDING',
+            },
+          });
+          return d;
+        });
+
+        // ===== SIMULATED MODE (default) =====
+        // No external API call - returns a local payment gateway page URL
+        if (gatewayMode === 'simulated') {
+          const checkoutUrl = `${baseUrl}/payment-gateway?ref=${encodeURIComponent(ref)}&amount=${parseFloat(amount)}&method=${encodeURIComponent(method || 'moxsys')}`;
+          return res.status(201).json({
+            id: deposit.id,
+            reference: ref,
+            checkoutUrl,
+            sessionId: deposit.id,
+            amount: parseFloat(amount),
+            method: method || 'moxsys',
+            status: 'PENDING',
+          });
+        }
+
+        // ===== LIVE MODE (real Moxsys API) =====
+        const moxsysApiKey = process.env.MOXSYS_API_KEY;
+        const moxsysMode = process.env.MOXSYS_MODE || 'sandbox';
+        if (!moxsysApiKey) return res.status(500).json({ error: 'Payment gateway not configured. Set MOXSYS_API_KEY or use PAYMENT_GATEWAY_MODE=simulated' });
 
         // Map platform methods to Moxsys payment_method values
         const methodMap = {
@@ -316,8 +364,6 @@ app.use('/api', async (req, res) => {
         };
         const paymentMethod = methodMap[method] || 'checkout';
 
-        const ref = 'DEP-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-        const baseUrl = process.env.FRONTEND_URL || 'https://coltionproduct.vercel.app';
         // Moxsys requires a valid UUID v4 for the Idempotency-Key header
         const idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
           ? crypto.randomUUID()
@@ -341,8 +387,8 @@ app.use('/api', async (req, res) => {
             amount: parsedAmount,
             payer_email: u.email || '',
             description: `Wallet Deposit - ${ref}`,
-            success_redirect_url: `${baseUrl}/deposit?status=success&ref=${ref}`,
-            failure_redirect_url: `${baseUrl}/deposit?status=failed&ref=${ref}`,
+            success_redirect_url: `${baseUrl}/payment-gateway?status=success&ref=${ref}`,
+            failure_redirect_url: `${baseUrl}/payment-gateway?status=failed&ref=${ref}`,
             payment_method: paymentMethod,
             callback_url: `${baseUrl}/api/payments/moxsys/webhook`,
             metadata: { reference: ref, userId: u.id },
@@ -359,29 +405,10 @@ app.use('/api', async (req, res) => {
         const invoiceUrl = invoice.invoice_url;
         const invoiceId = invoice.id;
 
-        // Create deposit record with Moxsys invoice reference
-        const deposit = await prisma.$transaction(async (tx) => {
-          const d = await tx.deposit.create({
-            data: {
-              userId: u.id,
-              amount: parseFloat(amount),
-              method: method || 'moxsys',
-              reference: ref,
-              proofOfPayment: invoiceId || '',
-              status: 'PENDING',
-            },
-          });
-          await tx.transaction.create({
-            data: {
-              userId: u.id,
-              type: 'DEPOSIT',
-              amount: parseFloat(amount),
-              method: method || 'moxsys',
-              reference: ref,
-              status: 'PENDING',
-            },
-          });
-          return d;
+        // Update deposit record with Moxsys invoice reference
+        await prisma.deposit.update({
+          where: { id: deposit.id },
+          data: { proofOfPayment: invoiceId || '' },
         });
 
         return res.status(201).json({
@@ -394,6 +421,86 @@ app.use('/api', async (req, res) => {
           status: 'PENDING',
         });
       } catch (e) { console.error('Moxsys invoice error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed to create payment' }); }
+    }
+
+    // POST /api/payments/simulate/pay - Simulate a successful payment (marks deposit as SUCCESS)
+    if (m === 'POST' && p === '/api/payments/simulate/pay') {
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const { reference } = body;
+        if (!reference) return res.status(400).json({ error: 'Reference required' });
+
+        const deposit = await prisma.deposit.findFirst({ where: { reference, userId: u.id } });
+        if (!deposit) return res.status(404).json({ error: 'Deposit not found' });
+        if (deposit.status !== 'PENDING') return res.status(400).json({ error: 'Deposit already processed' });
+
+        await prisma.$transaction(async (tx) => {
+          await tx.deposit.update({
+            where: { id: deposit.id },
+            data: { status: 'SUCCESS', completedAt: new Date(), approvedBy: 'Payment Gateway (Simulated)' },
+          });
+          // Business rule: Deposits go to SemWallet
+          await tx.wallet.update({ where: { userId: deposit.userId }, data: { semWallet: { increment: deposit.amount } } });
+          await tx.transaction.updateMany({
+            where: { reference: deposit.reference },
+            data: { status: 'SUCCESS', completedAt: new Date() },
+          });
+          await tx.notification.create({
+            data: { userId: deposit.userId, type: 'DEPOSIT_APPROVED', message: `Your deposit of ₱${deposit.amount.toLocaleString()} has been approved.`, read: false },
+          });
+
+          // Referral commission: 30% of FIRST approved deposit only (same as admin approval)
+          const depositor = await tx.user.findUnique({ where: { id: deposit.userId }, select: { referrerAgentId: true, fullName: true } });
+          if (depositor?.referrerAgentId) {
+            const approvedDepositCount = await tx.deposit.count({ where: { userId: deposit.userId, status: 'SUCCESS' } });
+            if (approvedDepositCount === 1) {
+              const settings = await tx.platformSettings.findFirst();
+              const rate = (settings?.referralCommissionPercent || 30) / 100;
+              const agent = await tx.agentProfile.findUnique({ where: { id: depositor.referrerAgentId } });
+              if (agent) {
+                const existingCommission = await tx.agentCommission.findFirst({ where: { agentId: agent.id, referredUserId: deposit.userId } });
+                if (!existingCommission) {
+                  const commission = Math.round(deposit.amount * rate * 100) / 100;
+                  await tx.agentCommission.create({ data: { agentId: agent.id, referredUserId: deposit.userId, referredName: depositor.fullName || 'User', depositAmount: deposit.amount, commissionRate: rate, commissionAmount: commission } });
+                  await tx.agentProfile.update({ where: { id: agent.id }, data: { totalCommission: { increment: commission }, qualifiedDeposits: { increment: 1 }, availableBalance: { increment: commission } } });
+                  await tx.agentReferral.updateMany({ where: { agentId: agent.id, userId: deposit.userId }, data: { status: 'COMMISSION_PAID', firstDeposit: deposit.amount, commission } });
+                  await tx.wallet.update({ where: { userId: agent.userId }, data: { main: { increment: commission } } });
+                  await tx.transaction.create({ data: { userId: agent.userId, type: 'REFERRAL_COMMISSION', amount: commission, method: 'system', reference: 'COMM-' + Date.now(), status: 'SUCCESS' } });
+                  await tx.user.update({ where: { id: agent.userId }, data: { totalReferralEarnings: { increment: commission } } });
+                }
+              }
+            }
+          }
+        });
+
+        return res.json({ success: true, reference: deposit.reference, status: 'SUCCESS' });
+      } catch (e) { console.error('Simulate payment error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed to simulate payment' }); }
+    }
+
+    // POST /api/payments/simulate/fail - Simulate a failed payment
+    if (m === 'POST' && p === '/api/payments/simulate/fail') {
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const { reference } = body;
+        if (!reference) return res.status(400).json({ error: 'Reference required' });
+
+        const deposit = await prisma.deposit.findFirst({ where: { reference, userId: u.id } });
+        if (!deposit) return res.status(404).json({ error: 'Deposit not found' });
+        if (deposit.status !== 'PENDING') return res.status(400).json({ error: 'Deposit already processed' });
+
+        await prisma.$transaction(async (tx) => {
+          await tx.deposit.update({
+            where: { id: deposit.id },
+            data: { status: 'FAILED', completedAt: new Date(), approvedBy: 'Payment Gateway (Simulated)', rejectionReason: 'Payment declined by user' },
+          });
+          await tx.transaction.updateMany({
+            where: { reference: deposit.reference },
+            data: { status: 'FAILED', completedAt: new Date() },
+          });
+        });
+
+        return res.json({ success: true, reference: deposit.reference, status: 'FAILED' });
+      } catch (e) { console.error('Simulate fail error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed to simulate failure' }); }
     }
 
     // GET /api/payments/moxsys/status/:ref - Check payment status

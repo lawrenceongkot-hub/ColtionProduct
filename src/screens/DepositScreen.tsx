@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { colors, typography, borderRadius } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { transactionService } from '../services/transactionService';
+import { PaymentGatewayScreen } from './PaymentGatewayScreen';
 import { Button } from '../components/Button';
 import { GlassCard } from '../components/GlassCard';
 import { FORMAT_CURRENCY } from '../constants';
@@ -31,6 +32,7 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
   const [result, setResult] = useState<{ ref: string; id: string } | null>(null);
   const [paymongoFailed, setPaymongoFailed] = useState(false);
   const [customError, setCustomError] = useState<string | null>(null);
+  const [gateway, setGateway] = useState<{ reference: string; amount: number; method: string } | null>(null);
 
   const numericAmount = parseFloat(amount) || 0;
 
@@ -65,23 +67,27 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
     setCustomError(null);
     setIsProcessing(true);
     try {
-      // Try create a real payment gateway checkout session
-      try {
-        const checkout = await transactionService.createPayMongoCheckout(method, numericAmount);
-        setResult({ ref: checkout.reference, id: checkout.sessionId });
-        // Redirect to the gateway's hosted checkout page
-        window.location.href = checkout.checkoutUrl;
+      // Try create a payment gateway checkout session
+      const checkout = await transactionService.createPayMongoCheckout(method, numericAmount);
+      // If checkout URL is a local simulated gateway, show the payment gateway screen inline
+      if (checkout.checkoutUrl.includes('/payment-gateway')) {
+        setGateway({ reference: checkout.reference, amount: numericAmount, method });
         return;
-      } catch (pgError: any) {
-        // If the gateway is not configured/available, fall back to a manual PENDING deposit
-        // that the admin can approve. Never dead-end the user.
-        console.warn('Payment gateway unavailable, falling back to manual deposit:', pgError?.message || pgError);
-        setPaymongoFailed(true);
+      }
+      // Otherwise redirect to the external gateway's hosted checkout page
+      setResult({ ref: checkout.reference, id: checkout.sessionId });
+      window.location.href = checkout.checkoutUrl;
+    } catch (pgError: any) {
+      // If the gateway is not configured/available, fall back to a manual PENDING deposit
+      // that the admin can approve. Never dead-end the user.
+      console.warn('Payment gateway unavailable, falling back to manual deposit:', pgError?.message || pgError);
+      setPaymongoFailed(true);
+      try {
         const tx = await transactionService.createDeposit(user.id, method, numericAmount);
         setResult({ ref: tx.reference, id: tx.id });
+      } catch (e: any) {
+        setCustomError(e.message || 'Failed to create deposit');
       }
-    } catch (e: any) {
-      setCustomError(e.message || 'Failed to create deposit');
     } finally {
       setIsProcessing(false);
     }
@@ -93,7 +99,33 @@ export const DepositScreen: React.FC<DepositScreenProps> = React.memo(({ onBack 
     onBack();
   }, [user, result, numericAmount, onBack]);
 
+  const handleGatewayComplete = useCallback((success: boolean) => {
+    setGateway(null);
+    if (success) {
+      // Small delay so the user sees the success state
+      setTimeout(() => onBack(), 1500);
+    } else {
+      onBack();
+    }
+  }, [onBack]);
+
+  const handleGatewayCancel = useCallback(() => {
+    setGateway(null);
+  }, []);
+
   if (!user) return null;
+
+  if (gateway) {
+    return (
+      <PaymentGatewayScreen
+        reference={gateway.reference}
+        amount={gateway.amount}
+        method={gateway.method}
+        onComplete={handleGatewayComplete}
+        onCancel={handleGatewayCancel}
+      />
+    );
+  }
 
   return (
     <div style={{
