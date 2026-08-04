@@ -711,9 +711,11 @@ app.use('/api', async (req, res) => {
         // ISSUE 2: Total Withdrawals = released amount (netAmount), Withdrawal Fees = retained fees
         const totalWithdrawals = tw._sum.netAmount || 0;
         const withdrawalFees = twf._sum.fee || 0;
-        // ISSUE 2: Net Revenue = deposits - released withdrawals + withdrawal fees (fees are company income)
+        // ISSUE 2: Net Revenue = deposits - released amount only.
+        // The fee is ALREADY retained because we subtract netAmount (released), not requestedAmount.
+        // Adding fee again would double-count it.
         const totalDeposits = td._sum.amount || 0;
-        const netRevenue = totalDeposits - totalWithdrawals + withdrawalFees;
+        const netRevenue = totalDeposits - totalWithdrawals;
         return res.json({ totalUsers: tu, onlineUsers: as, newUsersToday: nut, verifiedUsers: vu, pendingVerification: pv, suspendedBanned: sb, totalDeposits, totalWithdrawals, withdrawalFees, netRevenue, totalWelcomeBonuses: wb._sum.amount || 0, totalReferralCommissions: rc._sum.commissionAmount || 0, totalWalletBalance, activeVIPMembers: av, activeInvestmentOrders: ao, totalInvestedAmount: ia._sum.buyAmount || 0, dailyProfitDistributedToday: dp._sum.amount || 0, investmentsCompletingToday: ct, runningInvestmentPlans: rp, pendingDeposits: pd, pendingWithdrawals: pw, pendingKYC: pk, failedTransactions: ft, pendingSupportRequests: st, lastUpdated: new Date().toISOString() });
       } catch (e) { console.error('Admin dashboard error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
