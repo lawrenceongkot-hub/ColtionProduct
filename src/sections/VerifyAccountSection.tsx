@@ -11,7 +11,8 @@ interface Props {
   onBack: () => void;
 }
 
-const TELEGRAM_SUPPORT_URL = 'https://t.me/ColtionSupport';
+import { TELEGRAM_LINKS } from '../constants';
+const TELEGRAM_SUPPORT_URL = TELEGRAM_LINKS.support;
 
 export const VerifyAccountSection: React.FC<Props> = React.memo(({ onBack }) => {
   const { user } = useAuth();

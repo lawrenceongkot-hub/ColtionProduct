@@ -7,13 +7,12 @@ import { colors, typography, borderRadius, shadows } from '../theme';
  * - Fixed bottom-right, always visible, high z-index
  * - Blue gradient circular button with Telegram official icon
  * - Click opens a popup with two options:
- *   1. TG Customer Service → https://t.me/ColtionSupport
- *   2. Official Telegram Group → https://t.me/ColtionCommunity
+ *   1. TG Customer Service → https://t.me/ColtionSupportOfficial
+ *   2. Official Telegram Group → https://t.me/OfficialColtionChannel
  * - Popup closes on: close button, ESC, clicking outside
  */
 
-const CUSTOMER_SERVICE_URL = 'https://t.me/ColtionSupport';
-const OFFICIAL_GROUP_URL = 'https://t.me/ColtionCommunity';
+import { TELEGRAM_LINKS, openTelegramLink } from '../constants';
 
 export const TelegramSupportWidget: React.FC = React.memo(() => {
   const [open, setOpen] = useState(false);
@@ -173,7 +172,7 @@ export const TelegramSupportWidget: React.FC = React.memo(() => {
                 </div>
               </div>
               <motion.a
-                href={CUSTOMER_SERVICE_URL}
+                href={TELEGRAM_LINKS.support}
                 target="_blank"
                 rel="noopener noreferrer"
                 whileHover={{ opacity: 0.9 }}
@@ -226,7 +225,7 @@ export const TelegramSupportWidget: React.FC = React.memo(() => {
                 </div>
               </div>
               <motion.a
-                href={OFFICIAL_GROUP_URL}
+                href={TELEGRAM_LINKS.group}
                 target="_blank"
                 rel="noopener noreferrer"
                 whileHover={{ opacity: 0.9 }}

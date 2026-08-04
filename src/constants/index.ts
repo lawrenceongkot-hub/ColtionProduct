@@ -143,6 +143,18 @@ export const HERO_SLIDES = [
   },
 ] as const;
 
+// ============================================================
+// TELEGRAM LINKS - Single source of truth for all Telegram URLs
+// ============================================================
+export const TELEGRAM_LINKS = {
+  support: 'https://t.me/ColtionSupportOfficial',
+  group: 'https://t.me/OfficialColtionChannel',
+} as const;
+
+export const openTelegramLink = (url: string): void => {
+  window.open(url, '_blank', 'noopener,noreferrer');
+};
+
 export const FORMAT_CURRENCY = (amount: number): string => {
   return '₱' + amount.toLocaleString('en-PH');
 };
