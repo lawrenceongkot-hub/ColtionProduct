@@ -299,7 +299,8 @@ app.use('/api', async (req, res) => {
         const { amount, method } = body;
         if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
         const parsedAmount = Math.round(parseFloat(amount) * 100); // PayMongo uses centavos
-        const paymongoKey = process.env.PAYMONGO_SECRET_KEY;
+        // Use env var if set, otherwise fall back to the configured test key
+        const paymongoKey = process.env.PAYMONGO_SECRET_KEY || 'Ht23THehMXQmOa9QL91mkAKhmISIaTTATlzaVK43GghH4oW8IU';
         if (!paymongoKey) return res.status(500).json({ error: 'Payment gateway not configured' });
 
         // Map platform methods to PayMongo payment method types
