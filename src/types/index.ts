@@ -1,4 +1,4 @@
-export interface SplashProps {
+  export interface SplashProps {
   onComplete: () => void;
 }
 
@@ -145,7 +145,7 @@ export interface ReferralEntry {
 export interface Transaction {
   id: string;
   userId: string;
-  type: 'deposit' | 'withdrawal' | 'vip_purchase' | 'daily_profit' | 'referral_commission' | 'wallet_transfer' | 'vip_maturity_transfer' | 'welcome_bonus' | 'agent_commission' | 'admin_adjustment';
+  type: 'deposit' | 'withdrawal' | 'vip_purchase' | 'daily_profit' | 'referral_commission' | 'wallet_transfer' | 'vip_maturity_transfer' | 'welcome_bonus' | 'agent_commission' | 'admin_adjustment' | 'admin_deduction';
   amount: number;
   method: string;
   walletNumber?: string;

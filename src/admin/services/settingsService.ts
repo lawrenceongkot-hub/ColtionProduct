@@ -44,6 +44,12 @@ export interface PlatformSettings {
   investmentNotifications: boolean;
   depositNotifications: boolean;
   withdrawalNotifications: boolean;
+  // Landing Page Statistics Controls
+  landingTotalUsersDisplay: number;
+  landingTotalInvestmentsDisplay: number;
+  landingLatestInvestorCount: number;
+  landingEnableLiveCounter: boolean;
+  landingEnableAnimatedNumbers: boolean;
 }
 
 export const DEFAULT_SETTINGS: PlatformSettings = {
@@ -89,6 +95,12 @@ export const DEFAULT_SETTINGS: PlatformSettings = {
   investmentNotifications: true,
   depositNotifications: true,
   withdrawalNotifications: true,
+  // Landing Page Statistics
+  landingTotalUsersDisplay: 0,
+  landingTotalInvestmentsDisplay: 0,
+  landingLatestInvestorCount: 5,
+  landingEnableLiveCounter: true,
+  landingEnableAnimatedNumbers: true,
 };
 
 export const settingsService = {
@@ -133,6 +145,8 @@ export const settingsService = {
             'passwordMinLength','requireUppercase','requireLowercase','requireNumber','requireSpecialChar',
             'rememberMeDays','twoFactorEnabled','emailVerificationRequired','mobileVerificationRequired',
             'maxUploadSizeMB','allowedImageTypes','allowedDocumentTypes','maxVerificationFileSizeMB',
+            'landingTotalUsersDisplay','landingTotalInvestmentsDisplay','landingLatestInvestorCount',
+            'landingEnableLiveCounter','landingEnableAnimatedNumbers',
           ].includes(k)
         )
       );

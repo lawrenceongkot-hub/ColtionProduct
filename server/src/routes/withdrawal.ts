@@ -14,27 +14,39 @@ withdrawalRouter.post('/', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Insufficient balance' });
     }
 
-    const withdrawal = await prisma.withdrawal.create({
-      data: {
-        userId: req.user!.id,
-        amount,
-        method,
-        walletNumber,
-        reference,
-        status: 'PENDING',
-      },
-    });
+    // ISSUE 5: Apply 10% withdrawal fee
+    const parsedAmount = parseFloat(amount);
+    const fee = Math.round(parsedAmount * 0.10 * 100) / 100;
+    const netAmount = parsedAmount - fee;
 
-    await prisma.transaction.create({
-      data: {
-        userId: req.user!.id,
-        type: 'WITHDRAWAL',
-        amount,
-        method,
-        walletNumber,
-        reference,
-        status: 'PENDING',
-      },
+    const withdrawal = await prisma.$transaction(async (tx) => {
+      const w = await tx.wallet.findUnique({ where: { userId: req.user!.id } });
+      if (!w || w.main < parsedAmount) throw new Error('Insufficient balance');
+      await tx.wallet.update({ where: { userId: req.user!.id }, data: { main: { decrement: parsedAmount } } });
+      const wd = await tx.withdrawal.create({
+        data: {
+          userId: req.user!.id,
+          amount: parsedAmount,
+          fee,
+          netAmount,
+          method,
+          walletNumber,
+          reference,
+          status: 'PENDING',
+        },
+      });
+      await tx.transaction.create({
+        data: {
+          userId: req.user!.id,
+          type: 'WITHDRAWAL',
+          amount: parsedAmount,
+          method,
+          walletNumber,
+          reference,
+          status: 'PENDING',
+        },
+      });
+      return wd;
     });
 
     res.status(201).json(withdrawal);

@@ -339,7 +339,7 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
                     { label: 'Account Name', value: selectedW.accountName },
                     { label: 'Account Number', value: selectedW.accountNumber },
                     { label: 'Requested Amount', value: `₱${(selectedW.amount ?? 0).toLocaleString()}` },
-                    { label: 'Processing Fee (2%)', value: `₱${(selectedW.fee ?? 0).toLocaleString()}` },
+                    { label: 'Processing Fee (10%)', value: `₱${(selectedW.fee ?? 0).toLocaleString()}` },
                     { label: 'Net Amount to Send', value: `₱${(selectedW.netAmount ?? selectedW.amount ?? 0).toLocaleString()}` },
                     { label: 'Status', value: <span style={{ padding: '2px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: `${statusColor(selectedW.status)}15`, color: statusColor(selectedW.status), border: `1px solid ${statusColor(selectedW.status)}22` }}>{selectedW.status}</span> },
                     { label: 'Request Date', value: selectedW.createdAt ? new Date(selectedW.createdAt).toLocaleString() : '-' },

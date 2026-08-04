@@ -46,6 +46,58 @@ app.use('/api', async (req, res) => {
       return t ? jwt.verify(t, process.env.JWT_SECRET || 'fallback') : null;
     }
 
+    // ============ PUBLIC LANDING STATISTICS ============
+    if (m === 'GET' && p === '/api/landing/stats') {
+      try {
+        const settings = await prisma.platformSettings.findFirst();
+        const totalUsers = await prisma.user.count();
+        const totalInvestments = await prisma.investmentOrder.aggregate({ _sum: { buyAmount: true }, where: { status: 'ACTIVE' } });
+        const latestInvestors = await prisma.investmentOrder.findMany({
+          orderBy: { purchaseDate: 'desc' },
+          take: settings?.landingLatestInvestorCount || 5,
+          include: { user: { select: { fullName: true, displayId: true } } },
+        });
+        const latestInvestments = await prisma.investmentOrder.findMany({
+          orderBy: { purchaseDate: 'desc' },
+          take: settings?.landingLatestInvestorCount || 5,
+          include: { user: { select: { fullName: true, displayId: true } } },
+        });
+        const topInvestors = await prisma.investmentOrder.groupBy({
+          by: ['userId'],
+          _sum: { buyAmount: true },
+          orderBy: { _sum: { buyAmount: 'desc' } },
+          take: 5,
+        });
+        const topInvestorIds = topInvestors.map(t => t.userId);
+        const topInvestorUsers = topInvestorIds.length ? await prisma.user.findMany({ where: { id: { in: topInvestorIds } }, select: { id: true, fullName: true, displayId: true } }) : [];
+        const topInvestorsEnriched = topInvestors.map(t => {
+          const u = topInvestorUsers.find(x => x.id === t.userId);
+          return { userId: t.userId, fullName: u?.fullName || 'User', displayId: u?.displayId || '', totalInvested: t._sum.buyAmount || 0 };
+        });
+        const recentRegistrations = await prisma.user.findMany({
+          orderBy: { createdAt: 'desc' },
+          take: settings?.landingLatestInvestorCount || 5,
+          select: { id: true, fullName: true, displayId: true, createdAt: true },
+        });
+
+        return res.json({
+          totalUsers,
+          totalInvestments: totalInvestments._sum.buyAmount || 0,
+          latestInvestors: latestInvestors.map(o => ({ id: o.id, fullName: o.user?.fullName || 'User', displayId: o.user?.displayId || '', amount: o.buyAmount, date: o.purchaseDate })),
+          latestInvestments: latestInvestments.map(o => ({ id: o.id, fullName: o.user?.fullName || 'User', displayId: o.user?.displayId || '', amount: o.buyAmount, plan: o.vipName, date: o.purchaseDate })),
+          topInvestors: topInvestorsEnriched,
+          recentRegistrations: recentRegistrations.map(u => ({ id: u.id, fullName: u.fullName, displayId: u.displayId, date: u.createdAt })),
+          displaySettings: {
+            totalUsersDisplay: settings?.landingTotalUsersDisplay || totalUsers,
+            totalInvestmentsDisplay: settings?.landingTotalInvestmentsDisplay || (totalInvestments._sum.buyAmount || 0),
+            latestInvestorCount: settings?.landingLatestInvestorCount || 5,
+            enableLiveCounter: settings?.landingEnableLiveCounter ?? true,
+            enableAnimatedNumbers: settings?.landingEnableAnimatedNumbers ?? true,
+          },
+        });
+      } catch (e) { console.error('Landing stats error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
+    }
+
     // ============ AUTH ============
 
     // POST /api/auth/register
@@ -251,6 +303,9 @@ app.use('/api', async (req, res) => {
         const { amount, method, walletId, walletNumber } = body;
         if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
         const parsedAmount = parseFloat(amount);
+        // ISSUE 5: Apply 10% withdrawal fee
+        const fee = Math.round(parsedAmount * 0.10 * 100) / 100;
+        const netAmount = parsedAmount - fee;
         const ref = 'WTH-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
         // Resolve the eWallet by walletId (or fall back to walletNumber) - must belong to the user
         let resolvedWalletNumber = walletNumber || '';
@@ -264,8 +319,9 @@ app.use('/api', async (req, res) => {
           const w = await tx.wallet.findUnique({ where: { userId: u.id } });
           if (!w) throw new Error('Wallet not found');
           if (w.main < parsedAmount) throw new Error('Insufficient balance');
+          // Deduct GROSS amount from wallet
           await tx.wallet.update({ where: { userId: u.id }, data: { main: { decrement: parsedAmount } } });
-          const withdrawal = await tx.withdrawal.create({ data: { userId: u.id, amount: parsedAmount, method: method || 'bank_transfer', walletNumber: resolvedWalletNumber, reference: ref, status: 'PENDING' } });
+          const withdrawal = await tx.withdrawal.create({ data: { userId: u.id, amount: parsedAmount, fee, netAmount, method: method || 'bank_transfer', walletNumber: resolvedWalletNumber, reference: ref, status: 'PENDING' } });
           await tx.transaction.create({ data: { userId: u.id, type: 'WITHDRAWAL', amount: parsedAmount, method: method || 'bank_transfer', walletNumber: resolvedWalletNumber, reference: ref, status: 'PENDING' } });
           await tx.auditLog.create({ data: { userId: u.id, action: 'Withdrawal Requested', amount: parsedAmount, timestamp: new Date() } });
           return withdrawal;
@@ -280,8 +336,23 @@ app.use('/api', async (req, res) => {
 
     // ============ ORDERS / VIP ============
     if (m === 'POST' && p === '/api/orders/purchase') {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { vipLevel, buyAmount, vipName, vipBadge, dailyRate, dailyProfitPerDay, duration, totalReturn } = body; if (vipLevel === undefined || vipLevel === null || !buyAmount || buyAmount <= 0) { return res.status(400).json({ error: 'Invalid VIP data', received: { vipLevel, buyAmount, vipName, vipBadge } }); } const w = await prisma.wallet.findUnique({ where: { userId: u.id } }); if (!w || w.semWallet < buyAmount) return res.status(400).json({ error: 'Insufficient SemWallet balance' }); const o = await prisma.$transaction(async (tx) => { await tx.wallet.update({ where: { userId: u.id }, data: { semWallet: { decrement: buyAmount } } }); return tx.investmentOrder.create({ data: { userId: u.id, vipLevel: parseInt(vipLevel), vipName: vipName || '', vipBadge: vipBadge || '', buyAmount: parseFloat(buyAmount), dailyRate: dailyRate || 0, dailyProfitPerDay: dailyProfitPerDay || 0, duration: duration || 30, totalReturn: totalReturn || 0, status: 'ACTIVE', purchaseDate: new Date(), completedDays: 0, currentProfit: 0 } }); }); return res.status(201).json(o); }
-      catch (e) { return res.status(500).json({ error: e.message }); }
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const { vipLevel, buyAmount, vipName, vipBadge, dailyRate, dailyProfitPerDay, duration, totalReturn } = body;
+        if (vipLevel === undefined || vipLevel === null || !buyAmount || buyAmount <= 0) {
+          return res.status(400).json({ error: 'Invalid VIP data', received: { vipLevel, buyAmount, vipName, vipBadge } });
+        }
+        const w = await prisma.wallet.findUnique({ where: { userId: u.id } });
+        if (!w || w.semWallet < buyAmount) return res.status(400).json({ error: 'Insufficient SemWallet balance' });
+        const o = await prisma.$transaction(async (tx) => {
+          await tx.wallet.update({ where: { userId: u.id }, data: { semWallet: { decrement: buyAmount } } });
+          const order = await tx.investmentOrder.create({ data: { userId: u.id, vipLevel: parseInt(vipLevel), vipName: vipName || '', vipBadge: vipBadge || '', buyAmount: parseFloat(buyAmount), dailyRate: dailyRate || 0, dailyProfitPerDay: dailyProfitPerDay || 0, duration: duration || 30, totalReturn: totalReturn || 0, status: 'ACTIVE', purchaseDate: new Date(), completedDays: 0, currentProfit: 0 } });
+          // ISSUE 4: Create transaction record for VIP purchase
+          await tx.transaction.create({ data: { userId: u.id, type: 'VIP_PURCHASE', amount: parseFloat(buyAmount), method: vipName || 'VIP', reference: 'VIP-' + order.id.slice(-8).toUpperCase(), status: 'SUCCESS', completedAt: new Date() } });
+          return order;
+        });
+        return res.status(201).json(o);
+      } catch (e) { console.error('VIP purchase error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed to purchase VIP' }); }
     }
     if (m === 'GET' && p === '/api/orders') {
       try {
@@ -495,8 +566,18 @@ app.use('/api', async (req, res) => {
       catch { return res.status(500).json({ error: 'Failed' }); }
     }
     if (m === 'POST' && p === '/api/ewallets') {
-      try { const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' }); const { provider, walletNumber, withdrawalPassword } = body; if (!provider || !walletNumber) return res.status(400).json({ error: 'Required' }); if (!withdrawalPassword) return res.status(400).json({ error: 'Withdrawal password is required' }); const hashed = await bcrypt.hash(String(withdrawalPassword), 12); const e = await prisma.eWallet.create({ data: { userId: u.id, provider, walletNumber, withdrawalPassword: hashed } }); return res.status(201).json({ id: e.id, userId: e.userId, provider: e.provider, walletNumber: e.walletNumber }); }
-      catch (e) { console.error('Add ewallet error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const { provider, walletNumber, withdrawalPassword } = body;
+        if (!provider || !walletNumber) return res.status(400).json({ error: 'Required' });
+        if (!withdrawalPassword) return res.status(400).json({ error: 'Withdrawal password is required' });
+        // Check if wallet number already exists for this user
+        const existing = await prisma.eWallet.findFirst({ where: { walletNumber, userId: u.id } });
+        if (existing) return res.status(400).json({ error: 'Wallet number already registered' });
+        const hashed = await bcrypt.hash(String(withdrawalPassword), 12);
+        const e = await prisma.eWallet.create({ data: { userId: u.id, provider, walletNumber, withdrawalPassword: hashed } });
+        return res.status(201).json({ id: e.id, userId: e.userId, provider: e.provider, walletNumber: e.walletNumber });
+      } catch (e) { console.error('Add ewallet error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
     if (m === 'POST' && p === '/api/ewallets/verify-password') {
       try {
@@ -645,21 +726,77 @@ app.use('/api', async (req, res) => {
       try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const logs = await prisma.auditLog.findMany({ where: { userId: id }, orderBy: { timestamp: 'desc' }, take: 50 }); return res.json(logs); }
       catch { return res.status(500).json({ error: 'Failed' }); }
     }
+    // ISSUE 1: Admin Adjust Balance - Add Main Wallet with transaction record
     if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/wallet/main/add')) {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { amount } = body; if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' }); const w = await prisma.wallet.update({ where: { userId: id }, data: { main: { increment: parseFloat(amount) } } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Add Main Wallet', amount: parseFloat(amount), timestamp: new Date() } }); return res.json(w); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const id = p.split('/')[4]; const { amount } = body;
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+        const parsedAmount = parseFloat(amount);
+        const ref = 'ADJ-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
+        const result = await prisma.$transaction(async (tx) => {
+          const w = await tx.wallet.update({ where: { userId: id }, data: { main: { increment: parsedAmount } } });
+          // Create ADMIN_ADJUSTMENT transaction
+          await tx.transaction.create({ data: { userId: id, type: 'ADMIN_ADJUSTMENT', amount: parsedAmount, method: 'Admin', reference: ref, status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } });
+          await tx.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Add Main Wallet', amount: parsedAmount, timestamp: new Date() } });
+          return w;
+        });
+        return res.json(result);
+      } catch (e) { console.error('Add main wallet error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
+    // ISSUE 1: Admin Deduct Balance - Main Wallet with transaction record
     if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/wallet/main/deduct')) {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { amount } = body; if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' }); const w = await prisma.wallet.update({ where: { userId: id }, data: { main: { decrement: parseFloat(amount) } } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Deduct Main Wallet', amount: parseFloat(amount), timestamp: new Date() } }); return res.json(w); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const id = p.split('/')[4]; const { amount } = body;
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+        const parsedAmount = parseFloat(amount);
+        const w = await prisma.wallet.findUnique({ where: { userId: id } });
+        if (!w || w.main < parsedAmount) return res.status(400).json({ error: 'Insufficient balance' });
+        const ref = 'ADJ-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
+        const result = await prisma.$transaction(async (tx) => {
+          const updated = await tx.wallet.update({ where: { userId: id }, data: { main: { decrement: parsedAmount } } });
+          // Create ADMIN_DEDUCTION transaction
+          await tx.transaction.create({ data: { userId: id, type: 'ADMIN_DEDUCTION', amount: parsedAmount, method: 'Admin', reference: ref, status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } });
+          await tx.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Deduct Main Wallet', amount: parsedAmount, timestamp: new Date() } });
+          return updated;
+        });
+        return res.json(result);
+      } catch (e) { console.error('Deduct main wallet error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
     if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/wallet/sem/add')) {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { amount } = body; if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' }); const w = await prisma.wallet.update({ where: { userId: id }, data: { semWallet: { increment: parseFloat(amount) } } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Add SemWallet', amount: parseFloat(amount), timestamp: new Date() } }); return res.json(w); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const id = p.split('/')[4]; const { amount } = body;
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+        const parsedAmount = parseFloat(amount);
+        const ref = 'ADJ-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
+        const result = await prisma.$transaction(async (tx) => {
+          const w = await tx.wallet.update({ where: { userId: id }, data: { semWallet: { increment: parsedAmount } } });
+          await tx.transaction.create({ data: { userId: id, type: 'ADMIN_ADJUSTMENT', amount: parsedAmount, method: 'Admin', reference: ref, status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } });
+          await tx.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Add SemWallet', amount: parsedAmount, timestamp: new Date() } });
+          return w;
+        });
+        return res.json(result);
+      } catch (e) { console.error('Add sem wallet error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
     if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/wallet/sem/deduct')) {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { amount } = body; if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' }); const w = await prisma.wallet.update({ where: { userId: id }, data: { semWallet: { decrement: parseFloat(amount) } } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Deduct SemWallet', amount: parseFloat(amount), timestamp: new Date() } }); return res.json(w); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const id = p.split('/')[4]; const { amount } = body;
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+        const parsedAmount = parseFloat(amount);
+        const w = await prisma.wallet.findUnique({ where: { userId: id } });
+        if (!w || w.semWallet < parsedAmount) return res.status(400).json({ error: 'Insufficient balance' });
+        const ref = 'ADJ-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
+        const result = await prisma.$transaction(async (tx) => {
+          const updated = await tx.wallet.update({ where: { userId: id }, data: { semWallet: { decrement: parsedAmount } } });
+          await tx.transaction.create({ data: { userId: id, type: 'ADMIN_DEDUCTION', amount: parsedAmount, method: 'Admin', reference: ref, status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } });
+          await tx.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Deduct SemWallet', amount: parsedAmount, timestamp: new Date() } });
+          return updated;
+        });
+        return res.json(result);
+      } catch (e) { console.error('Deduct sem wallet error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
     if (m === 'PUT' && p.startsWith('/api/admin/users/') && p.endsWith('/ban')) {
       try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const user = await prisma.user.update({ where: { id }, data: { status: 'banned' } }); await prisma.userSession.deleteMany({ where: { userId: id } }); await prisma.auditLog.create({ data: { adminId: u.id, adminName: u.email, adminRole: 'admin', userId: id, action: 'Account Banned', timestamp: new Date() } }); return res.json(user); }
@@ -690,6 +827,7 @@ app.use('/api', async (req, res) => {
       try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const d = await prisma.deposit.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }); return res.json(d); }
       catch { return res.status(500).json({ error: 'Failed' }); }
     }
+    // ISSUE 2: Fix referral commission - exactly 30% of FIRST approved deposit only
     if (m === 'PUT' && p.includes('/api/admin/deposits/') && p.endsWith('/approve')) {
       try {
         const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
@@ -702,23 +840,29 @@ app.use('/api', async (req, res) => {
           // Business rule: Deposits go to SemWallet, NOT MainWallet
           await tx.wallet.update({ where: { userId: d.userId }, data: { semWallet: { increment: d.amount } } });
           await tx.transaction.create({ data: { userId: d.userId, type: 'DEPOSIT', amount: d.amount, method: d.method, reference: d.reference, status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } });
-          // Referral commission: only on FIRST qualified deposit (>= 100) and ONLY ONCE
+          // Referral commission: ONLY on FIRST approved deposit, exactly 30% of deposit amount
           const depositor = await tx.user.findUnique({ where: { id: d.userId }, select: { referrerAgentId: true, invitedBy: true, fullName: true } });
-          if (depositor?.referrerAgentId && d.amount >= 100) {
-            const settings = await tx.platformSettings.findFirst();
-            const rate = (settings?.referralCommissionPercent || 30) / 100;
-            const agent = await tx.agentProfile.findUnique({ where: { id: depositor.referrerAgentId } });
-            if (agent) {
-              // Check if commission was ALREADY paid for this referred user (prevent duplicates)
-              const existingCommission = await tx.agentCommission.findFirst({ where: { agentId: agent.id, referredUserId: d.userId } });
-              const existingReferral = await tx.agentReferral.findFirst({ where: { agentId: agent.id, userId: d.userId } });
-              if (!existingCommission && (!existingReferral || existingReferral.status === 'WAITING_DEPOSIT')) {
-                const commission = Math.round(d.amount * rate);
-                await tx.agentCommission.create({ data: { agentId: agent.id, referredUserId: d.userId, referredName: depositor.fullName || 'User', depositAmount: d.amount, commissionRate: rate, commissionAmount: commission } });
-                await tx.agentProfile.update({ where: { id: agent.id }, data: { totalCommission: { increment: commission }, qualifiedDeposits: { increment: 1 }, availableBalance: { increment: commission } } });
-                await tx.agentReferral.updateMany({ where: { agentId: agent.id, userId: d.userId }, data: { status: 'COMMISSION_PAID', firstDeposit: d.amount, commission } });
-                await tx.wallet.update({ where: { userId: agent.userId }, data: { main: { increment: commission } } });
-                await tx.transaction.create({ data: { userId: agent.userId, type: 'REFERRAL_COMMISSION', amount: commission, method: 'system', reference: 'COMM-' + Date.now(), status: 'SUCCESS' } });
+          if (depositor?.referrerAgentId) {
+            // Check if this is the FIRST approved deposit for this user
+            const approvedDepositCount = await tx.deposit.count({ where: { userId: d.userId, status: 'SUCCESS' } });
+            if (approvedDepositCount === 1) {
+              const settings = await tx.platformSettings.findFirst();
+              const rate = (settings?.referralCommissionPercent || 30) / 100;
+              const agent = await tx.agentProfile.findUnique({ where: { id: depositor.referrerAgentId } });
+              if (agent) {
+                // Check if commission was ALREADY paid for this referred user (prevent duplicates)
+                const existingCommission = await tx.agentCommission.findFirst({ where: { agentId: agent.id, referredUserId: d.userId } });
+                if (!existingCommission) {
+                  // ISSUE 2: Commission = depositAmount × 0.30 exactly
+                  const commission = Math.round(d.amount * rate * 100) / 100;
+                  await tx.agentCommission.create({ data: { agentId: agent.id, referredUserId: d.userId, referredName: depositor.fullName || 'User', depositAmount: d.amount, commissionRate: rate, commissionAmount: commission } });
+                  await tx.agentProfile.update({ where: { id: agent.id }, data: { totalCommission: { increment: commission }, qualifiedDeposits: { increment: 1 }, availableBalance: { increment: commission } } });
+                  await tx.agentReferral.updateMany({ where: { agentId: agent.id, userId: d.userId }, data: { status: 'COMMISSION_PAID', firstDeposit: d.amount, commission } });
+                  await tx.wallet.update({ where: { userId: agent.userId }, data: { main: { increment: commission } } });
+                  await tx.transaction.create({ data: { userId: agent.userId, type: 'REFERRAL_COMMISSION', amount: commission, method: 'system', reference: 'COMM-' + Date.now(), status: 'SUCCESS' } });
+                  // Update user's totalReferralEarnings
+                  await tx.user.update({ where: { id: agent.userId }, data: { totalReferralEarnings: { increment: commission } } });
+                }
               }
             }
           }
@@ -737,8 +881,8 @@ app.use('/api', async (req, res) => {
         const w = await prisma.withdrawal.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true, phone: true } } } });
         const enriched = w.map(x => ({
           ...x,
-          fee: 0,
-          netAmount: x.amount,
+          fee: x.fee || 0,
+          netAmount: x.netAmount || x.amount,
           accountName: x.user?.fullName || '',
           accountNumber: x.walletNumber || '',
           approvedAt: x.completedAt,
@@ -764,15 +908,24 @@ app.use('/api', async (req, res) => {
         if (existing.status === 'SUCCESS') return res.status(400).json({ error: 'Withdrawal already approved' });
         const w = await prisma.$transaction(async (tx) => {
           const updated = await tx.withdrawal.update({ where: { id }, data: { status: 'SUCCESS', approvedBy: u.email, completedAt: new Date() } });
-          await tx.wallet.update({ where: { userId: existing.userId }, data: { main: { decrement: existing.amount } } });
+          // ISSUE 5: Deduct GROSS amount from wallet (already deducted at request time)
+          // Payout equals NET amount
+          await tx.transaction.updateMany({ where: { reference: existing.reference }, data: { status: 'SUCCESS', completedAt: new Date() } });
           return updated;
         });
-        return res.json({ ...w, fee: 0, netAmount: w.amount, approvedAt: w.completedAt, completedAtTime: w.completedAt, processedBy: w.approvedBy, completedBy: w.approvedBy, paymentReference: null, transferReference: null, accountNumber: w.walletNumber || '', accountName: '' });
+        return res.json({ ...w, fee: w.fee || 0, netAmount: w.netAmount || w.amount, approvedAt: w.completedAt, completedAtTime: w.completedAt, processedBy: w.approvedBy, completedBy: w.approvedBy, paymentReference: null, transferReference: null, accountNumber: w.walletNumber || '', accountName: '' });
       } catch (e) { console.error('Approve withdrawal error:', e?.message || e); return res.status(500).json({ error: e?.message || 'Failed' }); }
     }
     if (m === 'PUT' && p.includes('/api/admin/withdrawals/') && p.endsWith('/reject')) {
-      try { const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' }); const id = p.split('/')[4]; const { reason } = body; const w = await prisma.withdrawal.update({ where: { id }, data: { status: 'FAILED', rejectionReason: reason || 'Rejected', approvedBy: u.email } }); await prisma.wallet.update({ where: { userId: w.userId }, data: { main: { increment: w.amount } } }); return res.json(w); }
-      catch { return res.status(500).json({ error: 'Failed' }); }
+      try {
+        const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
+        const id = p.split('/')[4]; const { reason } = body;
+        const w = await prisma.withdrawal.update({ where: { id }, data: { status: 'FAILED', rejectionReason: reason || 'Rejected', approvedBy: u.email } });
+        // Refund GROSS amount back to wallet
+        await prisma.wallet.update({ where: { userId: w.userId }, data: { main: { increment: w.amount } } });
+        await prisma.transaction.updateMany({ where: { reference: w.reference }, data: { status: 'FAILED', completedAt: new Date() } });
+        return res.json(w);
+      } catch { return res.status(500).json({ error: 'Failed' }); }
     }
 
     if (m === 'GET' && p === '/api/admin/orders') {

@@ -9,34 +9,38 @@ orderRouter.post('/purchase', async (req: AuthRequest, res: Response) => {
     const { vipLevel, vipName, vipBadge, buyAmount, dailyRate, dailyProfitPerDay, duration, totalReturn } = req.body;
 
     const wallet = await prisma.wallet.findUnique({ where: { userId: req.user!.id } });
-    if (!wallet || wallet.main < buyAmount) {
-      return res.status(400).json({ error: 'Insufficient balance' });
+    if (!wallet || wallet.semWallet < buyAmount) {
+      return res.status(400).json({ error: 'Insufficient SemWallet balance' });
     }
 
     const order = await prisma.$transaction(async (tx) => {
       await tx.wallet.update({
         where: { userId: req.user!.id },
-        data: { main: { decrement: buyAmount }, ongoing: { increment: buyAmount } },
+        data: { semWallet: { decrement: buyAmount } },
       });
 
-      return tx.investmentOrder.create({
+      const o = await tx.investmentOrder.create({
         data: {
           userId: req.user!.id,
           vipLevel, vipName, vipBadge, buyAmount, dailyRate, dailyProfitPerDay,
           duration, totalReturn, status: 'ACTIVE',
         },
       });
-    });
 
-    await prisma.transaction.create({
-      data: {
-        userId: req.user!.id,
-        type: 'VIP_PURCHASE',
-        amount: buyAmount,
-        method: vipName,
-        reference: 'VIP-' + order.id.slice(-8).toUpperCase(),
-        status: 'SUCCESS',
-      },
+      // ISSUE 4: Create VIP_PURCHASE transaction record
+      await tx.transaction.create({
+        data: {
+          userId: req.user!.id,
+          type: 'VIP_PURCHASE',
+          amount: buyAmount,
+          method: vipName,
+          reference: 'VIP-' + o.id.slice(-8).toUpperCase(),
+          status: 'SUCCESS',
+          completedAt: new Date(),
+        },
+      });
+
+      return o;
     });
 
     res.status(201).json(order);

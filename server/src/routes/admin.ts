@@ -283,19 +283,16 @@ adminRouter.put('/withdrawals/:id/approve', async (req: AuthRequest, res: Respon
     if (!withdrawal) return res.status(404).json({ error: 'Withdrawal not found' });
     if (withdrawal.status !== 'PENDING') return res.status(400).json({ error: 'Already processed' });
 
-    await prisma.withdrawal.update({
-      where: { id },
-      data: { status: 'SUCCESS', completedAt: new Date(), approvedBy: 'Admin' },
-    });
-
-    await prisma.wallet.update({
-      where: { userId: withdrawal.userId },
-      data: { main: { decrement: withdrawal.amount } },
-    });
-
-    await prisma.transaction.updateMany({
-      where: { reference: withdrawal.reference },
-      data: { status: 'SUCCESS', completedAt: new Date() },
+    // ISSUE 5: Gross amount already deducted at request time. Only update status.
+    await prisma.$transaction(async (tx) => {
+      await tx.withdrawal.update({
+        where: { id },
+        data: { status: 'SUCCESS', completedAt: new Date(), approvedBy: 'Admin' },
+      });
+      await tx.transaction.updateMany({
+        where: { reference: withdrawal.reference },
+        data: { status: 'SUCCESS', completedAt: new Date() },
+      });
     });
 
     res.json({ success: true });
@@ -311,19 +308,20 @@ adminRouter.put('/withdrawals/:id/reject', async (req: AuthRequest, res: Respons
     if (!withdrawal) return res.status(404).json({ error: 'Withdrawal not found' });
     if (withdrawal.status !== 'PENDING') return res.status(400).json({ error: 'Already processed' });
 
-    await prisma.withdrawal.update({
-      where: { id },
-      data: { status: 'FAILED', completedAt: new Date(), rejectionReason: req.body.reason || 'Rejected' },
-    });
-
-    await prisma.transaction.updateMany({
-      where: { reference: withdrawal.reference },
-      data: { status: 'FAILED', completedAt: new Date() },
-    });
-
-    await prisma.wallet.update({
-      where: { userId: withdrawal.userId },
-      data: { main: { increment: withdrawal.amount } },
+    // ISSUE 5: Refund GROSS amount back to wallet on rejection
+    await prisma.$transaction(async (tx) => {
+      await tx.withdrawal.update({
+        where: { id },
+        data: { status: 'FAILED', completedAt: new Date(), rejectionReason: req.body.reason || 'Rejected' },
+      });
+      await tx.transaction.updateMany({
+        where: { reference: withdrawal.reference },
+        data: { status: 'FAILED', completedAt: new Date() },
+      });
+      await tx.wallet.update({
+        where: { userId: withdrawal.userId },
+        data: { main: { increment: withdrawal.amount } },
+      });
     });
 
     res.json({ success: true });

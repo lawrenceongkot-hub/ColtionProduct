@@ -3,7 +3,7 @@ export const APP_TAGLINE = 'Invest Securely. Grow Confidently.';
 export const APP_VERSION = 'v1.0.0';
 
 export const SPLASH_DURATION = 2000;
-export const LOADING_DURATION = 10000;
+export const LOADING_DURATION = 5000;
 export const LOADING_INTERVAL = 50;
 
 export const LOADING_MESSAGES = [

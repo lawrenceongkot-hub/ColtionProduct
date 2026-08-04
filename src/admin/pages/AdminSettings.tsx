@@ -126,6 +126,25 @@ export const AdminSettings: React.FC = React.memo(() => {
         {settings.maintenanceMode && <InputField label="Maintenance Message" value={settings.maintenanceMessage} onChange={v => updateField('maintenanceMessage', v)} multiline />}
       </Section>
 
+      <Section title="Landing Statistics" icon="📊">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <InputField label="Total Users Display" value={String(settings.landingTotalUsersDisplay || '')} onChange={v => updateField('landingTotalUsersDisplay', parseFloat(v) || 0)} placeholder="0 = use actual count" />
+          <InputField label="Total Investments Display" value={String(settings.landingTotalInvestmentsDisplay || '')} onChange={v => updateField('landingTotalInvestmentsDisplay', parseFloat(v) || 0)} placeholder="0 = use actual total" />
+        </div>
+        <div style={{ maxWidth: '200px', marginBottom: '12px' }}>
+          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 500, marginBottom: '4px' }}>Latest Investor Count</div>
+          <input type="number" min="1" max="20" value={settings.landingLatestInvestorCount || 5} onChange={e => updateField('landingLatestInvestorCount', parseInt(e.target.value) || 5)}
+            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#FFFFFF', fontSize: '13px', fontFamily: "'Inter', sans-serif", outline: 'none' }} />
+        </div>
+        <Toggle label="Enable Live Counter" value={settings.landingEnableLiveCounter ?? true} onChange={v => updateField('landingEnableLiveCounter', v)}
+          desc="When enabled, the landing page fetches live statistics from the backend" />
+        <Toggle label="Enable Animated Numbers" value={settings.landingEnableAnimatedNumbers ?? true} onChange={v => updateField('landingEnableAnimatedNumbers', v)}
+          desc="When enabled, numbers animate on the landing page" />
+        <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginTop: '8px' }}>
+          Set Total Users Display and Total Investments Display to 0 to show actual live values from the database.
+        </p>
+      </Section>
+
       <Section title="Referral Bonus Settings" icon="🤝">
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ flex: 1 }}>
@@ -140,8 +159,8 @@ export const AdminSettings: React.FC = React.memo(() => {
 
       <Section title="Payment Method Control" icon="💳">
         {Object.entries(settings.paymentMethods).map(([method, enabled]) => (
-          <Toggle key={method} label={method} value={enabled} onChange={v => updateField('paymentMethods', { ...settings.paymentMethods, [method]: v })}
-            desc={enabled ? 'Users can see and use this method' : 'Hidden from users'} />
+          <Toggle key={method} label={method} value={Boolean(enabled)} onChange={v => updateField('paymentMethods', { ...settings.paymentMethods, [method]: v })}
+            desc={Boolean(enabled) ? 'Users can see and use this method' : 'Hidden from users'} />
         ))}
       </Section>
 

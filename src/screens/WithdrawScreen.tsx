@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { walletService } from '../services/walletService';
 import { ewalletService } from '../services/ewalletService';
 import { verificationService } from '../services/verificationService';
+import { apiService } from '../services/api';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { GlassCard } from '../components/GlassCard';
@@ -28,7 +29,7 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
   const [withdrawalPassword, setWithdrawalPassword] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ ref: string } | null>(null);
+  const [result, setResult] = useState<{ ref: string; amount: number; fee: number; netAmount: number } | null>(null);
   const [isVerified, setIsVerified] = useState(false);
   const [balances, setBalances] = useState({ main: 0, semWallet: 0, ongoing: 0 });
 
@@ -48,16 +49,21 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
   const modalRef = useRef<HTMLDivElement>(null);
   const walletListRef = useRef<HTMLDivElement>(null);
 
-  // Check if withdrawals are enabled
+  // Check if withdrawals are enabled from backend settings
   useEffect(() => {
     try {
-      const settings = JSON.parse(localStorage.getItem('coltion_settings') || '{}');
-      if (settings.withdrawalsEnabled === false) {
-        setWithdrawalsBlocked(settings.withdrawalMaintenanceMessage || 'Withdrawals are temporarily unavailable due to scheduled maintenance.');
-      } else {
-        setWithdrawalsBlocked(null);
-      }
-    } catch {}
+      apiService.get<any>('/settings')
+        .then((settings: { withdrawalsEnabled?: boolean; withdrawalMaintenanceMessage?: string }) => {
+          if (settings && settings.withdrawalsEnabled === false) {
+            setWithdrawalsBlocked(settings.withdrawalMaintenanceMessage || 'Withdrawals are temporarily unavailable due to scheduled maintenance.');
+          } else {
+            setWithdrawalsBlocked(null);
+          }
+        })
+        .catch(() => setWithdrawalsBlocked(null));
+    } catch {
+      setWithdrawalsBlocked(null);
+    }
   }, []);
 
   // Load wallets
@@ -203,7 +209,9 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
       if (!tx || !tx.reference) {
         setError('Withdrawal was not created. Please try again.');
       } else {
-        setResult({ ref: tx.reference });
+        const fee = tx.fee || Math.round(numericAmount * 0.10 * 100) / 100;
+        const netAmount = tx.netAmount || numericAmount - fee;
+        setResult({ ref: tx.reference, amount: numericAmount, fee, netAmount });
       }
     } catch (e: any) {
       setError(e?.message || 'Failed to submit withdrawal. Please try again.');
@@ -225,7 +233,9 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
             <h3 style={{ fontSize: typography.lg, fontWeight: typography.bold, color: colors.textPrimary, fontFamily: typography.fontFamily }}>Withdrawal Submitted</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', textAlign: 'left' }}>
               <Row label="Reference" value={result.ref} />
-              <Row label="Amount" value={FORMAT_CURRENCY(numericAmount)} />
+              <Row label="Gross Amount" value={FORMAT_CURRENCY(result.amount)} />
+              <Row label="Fee (10%)" value={`-${FORMAT_CURRENCY(result.fee)}`} />
+              <Row label="Net Amount" value={FORMAT_CURRENCY(result.netAmount)} />
               <Row label="Wallet" value={`${currentWallet!.provider} - ${maskWalletNumber(currentWallet!.walletNumber)}`} />
               <Row label="Status" value="Pending" />
             </div>

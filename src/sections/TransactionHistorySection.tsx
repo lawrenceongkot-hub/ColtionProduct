@@ -27,6 +27,7 @@ const typeLabels: Record<string, string> = {
   welcome_bonus: 'Welcome Bonus',
   agent_commission: 'Agent Commission',
   admin_adjustment: 'Adjustment',
+  admin_deduction: 'Admin Deduction',
 };
 
 const CREDIT_TYPES = new Set([
@@ -51,6 +52,7 @@ const FILTER_TYPES = [
   'welcome_bonus',
   'agent_commission',
   'admin_adjustment',
+  'admin_deduction',
 ];
 
 export const TransactionHistorySection: React.FC<Props> = React.memo(({ onBack }) => {
