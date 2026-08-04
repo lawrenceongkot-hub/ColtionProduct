@@ -144,30 +144,46 @@ export const AdminAgents: React.FC = React.memo(() => {
           <table style={styles.table}>
             <thead>
               <tr>
-                <th style={styles.th}>Agent Code</th>
+                <th style={styles.th}>Display ID</th>
                 <th style={styles.th}>Name</th>
                 <th style={styles.th}>Email</th>
+                <th style={styles.th}>Mobile</th>
+                <th style={styles.th}>Invitation Code</th>
                 <th style={styles.th}>Referrals</th>
-                <th style={styles.th}>Deposits</th>
+                <th style={styles.th}>Valid Referrals</th>
+                <th style={styles.th}>Total Deposits</th>
                 <th style={styles.th}>Commission</th>
+                <th style={styles.th}>Available Balance</th>
                 <th style={styles.th}>Status</th>
+                <th style={styles.th}>Verification</th>
+                <th style={styles.th}>Registered</th>
                 <th style={styles.th}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map(agent => (
                 <tr key={agent.id}>
+                  <td style={styles.td}><span style={{ fontFamily: "'Courier New', monospace", color: '#60A5FA' }}>{agent.displayId || agent.user?.displayId || '—'}</span></td>
+                  <td style={{ ...styles.td, fontWeight: 500, color: '#FFFFFF' }}>{agent.user?.fullName || agent.fullName || '—'}</td>
+                  <td style={styles.td}>{agent.user?.email || agent.email || '—'}</td>
+                  <td style={styles.td}>{agent.user?.phone || '—'}</td>
                   <td style={styles.td}><span style={{ fontFamily: "'Courier New', monospace", color: '#60A5FA' }}>{agent.agentCode}</span></td>
-                  <td style={{ ...styles.td, fontWeight: 500, color: '#FFFFFF' }}>{agent.fullName}</td>
-                  <td style={styles.td}>{agent.email}</td>
-                  <td style={styles.td}>{agent.totalInvitedUsers || 0}</td>
-                  <td style={styles.td}>₱{(agent.totalDepositsGenerated || 0).toLocaleString()}</td>
-                  <td style={styles.td}>₱{(agent.totalReferralCommission || 0).toLocaleString()}</td>
+                  <td style={styles.td}>{agent.totalReferrals ?? agent.referrals?.length ?? 0}</td>
+                  <td style={styles.td}>{agent.usersWithDeposit ?? agent.qualifiedDeposits ?? 0}</td>
+                  <td style={styles.td}>₱{(agent.totalDeposits ?? 0).toLocaleString()}</td>
+                  <td style={styles.td}>₱{(agent.totalCommission ?? 0).toLocaleString()}</td>
+                  <td style={styles.td}>₱{(agent.availableBalance ?? 0).toLocaleString()}</td>
                   <td style={styles.td}>
                     <span style={styles.badge(agent.status === 'active' ? '#10B981' : agent.status === 'suspended' ? '#F59E0B' : '#EF4444')}>
                       {agent.status || 'active'}
                     </span>
                   </td>
+                  <td style={styles.td}>
+                    <span style={styles.badge(agent.user?.verificationStatus === 'APPROVED' ? '#10B981' : agent.user?.verificationStatus === 'PENDING' ? '#F59E0B' : '#6B7280')}>
+                      {agent.user?.verificationStatus === 'APPROVED' ? 'Verified' : agent.user?.verificationStatus === 'PENDING' ? 'Pending' : 'Rejected'}
+                    </span>
+                  </td>
+                  <td style={styles.td}>{agent.user?.createdAt ? new Date(agent.user.createdAt).toLocaleDateString() : '—'}</td>
                   <td style={styles.td}>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                       <button style={styles.actionBtn('#0066FF')} onClick={() => handleViewProfile(agent.id)}>View</button>
@@ -179,7 +195,7 @@ export const AdminAgents: React.FC = React.memo(() => {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ ...styles.td, textAlign: 'center', padding: '40px', color: 'rgba(255,255,255,0.3)' }}>
+                  <td colSpan={14} style={{ ...styles.td, textAlign: 'center', padding: '40px', color: 'rgba(255,255,255,0.3)' }}>
                     No agents found
                   </td>
                 </tr>

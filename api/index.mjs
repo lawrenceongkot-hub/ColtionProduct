@@ -799,7 +799,7 @@ app.use('/api', async (req, res) => {
     if (m === 'GET' && p === '/api/admin/agents') {
       try {
         const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
-        const agents = await prisma.agentProfile.findMany({ orderBy: { id: 'desc' }, include: { user: { select: { fullName: true, email: true, displayId: true } }, referrals: true, commissions: true } });
+        const agents = await prisma.agentProfile.findMany({ orderBy: { id: 'desc' }, include: { user: { select: { fullName: true, email: true, phone: true, displayId: true, verificationStatus: true, createdAt: true } }, referrals: true, commissions: true } });
         const enriched = await Promise.all(agents.map(async (a) => {
           const referredUserIds = a.referrals.map(r => r.userId);
           const users = referredUserIds.length ? await prisma.user.findMany({ where: { id: { in: referredUserIds } }, select: { id: true, verificationStatus: true, deposits: { where: { status: 'SUCCESS' }, select: { amount: true } }, withdrawals: { where: { status: 'SUCCESS' }, select: { amount: true } } } }) : [];
