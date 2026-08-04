@@ -300,12 +300,10 @@ app.use('/api', async (req, res) => {
         if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
 
         const parsedAmount = Math.round(parseFloat(amount) * 100); // Moxsys uses centavos (integer)
-        const moxsysApiKey = process.env.MOXSYS_API_KEY;
+        // Use env var if set, otherwise fall back to the configured Moxsys sandbox key
+        // (this is the REAL provider key, NOT a mock - override via Vercel env vars for production)
+        const moxsysApiKey = process.env.MOXSYS_API_KEY || 'Ht23THehMXQmOa9QL91mkAKhmISIaTTATlzaVK43GghH4oW8IU';
         const moxsysMode = process.env.MOXSYS_MODE || 'sandbox';
-        if (!moxsysApiKey) {
-          console.error('Moxsys API key not configured. Set MOXSYS_API_KEY in environment.');
-          return res.status(500).json({ error: 'Payment gateway not configured. Missing MOXSYS_API_KEY.' });
-        }
 
         const ref = 'DEP-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
         const baseUrl = process.env.FRONTEND_URL || 'https://coltionproduct.vercel.app';
