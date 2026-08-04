@@ -29,7 +29,7 @@ export const walletService = {
     return apiService.post('/deposits', { amount, method: 'Manual' });
   },
 
-  async withdraw(amount: number, method: string, walletNumber: string) {
-    return apiService.post('/withdrawals', { amount, method, walletNumber });
+  async withdraw(amount: number, method: string, walletNumber: string, walletId?: string) {
+    return apiService.post('/withdrawals', { amount, method, walletNumber, walletId });
   },
 };

@@ -198,7 +198,7 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
     setError(null);
     setIsProcessing(true);
     try {
-      const tx = await walletService.withdraw(numericAmount, currentWallet.provider, currentWallet.walletNumber);
+      const tx = await walletService.withdraw(numericAmount, currentWallet.provider, currentWallet.walletNumber, currentWallet.id);
       // Only show success after the backend returns a real withdrawal record
       if (!tx || !tx.reference) {
         setError('Withdrawal was not created. Please try again.');
@@ -361,22 +361,24 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = React.memo(({ onBac
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(16px, 2.5vh, 24px)' }}>
             <h2 style={{ fontSize: typography.xl, fontWeight: typography.bold, color: colors.textPrimary, fontFamily: typography.fontFamily, textAlign: 'center' }}>Withdraw</h2>
 
-            {/* Wallet Carousel */}
-            <div ref={walletListRef} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {/* Wallet Carousel - horizontal swipeable */}
+            <div ref={walletListRef} style={{ display: 'flex', gap: '10px', overflowX: 'auto', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch', paddingBottom: '4px' }}>
               {wallets.map((w, idx) => (
                 <motion.div
-                  key={w.provider + w.walletNumber}
-                  layout
+                  key={w.id || w.provider + w.walletNumber}
                   initial={idx === wallets.length - 1 ? { opacity: 0, x: 50 } : false}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ duration: 0.4, ease: 'easeOut' }}
                   onClick={() => setSelectedWalletIdx(idx)}
                   style={{
                     cursor: 'pointer',
+                    flex: '0 0 auto',
+                    minWidth: '180px',
                     padding: 'clamp(12px, 2vw, 16px)',
                     background: selectedWalletIdx === idx ? colors.bgGlassLight : colors.bgGlass,
                     border: `1.5px solid ${highlightNewIdx === idx ? colors.success : selectedWalletIdx === idx ? colors.primary : colors.borderDefault}`,
                     borderRadius: borderRadius.md,
+                    scrollSnapAlign: 'start',
                     transition: 'all 0.2s ease',
                     boxShadow: highlightNewIdx === idx ? `0 0 20px rgba(16,185,129,0.2)` : 'none',
                   }}

@@ -248,18 +248,25 @@ app.use('/api', async (req, res) => {
     if (m === 'POST' && p === '/api/withdrawals') {
       try {
         const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
-        const { amount, method, walletNumber } = body;
+        const { amount, method, walletId, walletNumber } = body;
         if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
         const parsedAmount = parseFloat(amount);
         const ref = 'WTH-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+        // Resolve the eWallet by walletId (or fall back to walletNumber) - must belong to the user
+        let resolvedWalletNumber = walletNumber || '';
+        if (walletId) {
+          const ew = await prisma.eWallet.findFirst({ where: { id: walletId, userId: u.id } });
+          if (!ew) return res.status(400).json({ error: 'Invalid wallet' });
+          resolvedWalletNumber = ew.walletNumber;
+        }
         // Single atomic transaction: lock wallet, validate, deduct, create Withdrawal + Transaction + AuditLog
         const wd = await prisma.$transaction(async (tx) => {
           const w = await tx.wallet.findUnique({ where: { userId: u.id } });
           if (!w) throw new Error('Wallet not found');
           if (w.main < parsedAmount) throw new Error('Insufficient balance');
           await tx.wallet.update({ where: { userId: u.id }, data: { main: { decrement: parsedAmount } } });
-          const withdrawal = await tx.withdrawal.create({ data: { userId: u.id, amount: parsedAmount, method: method || 'bank_transfer', walletNumber: walletNumber || '', reference: ref, status: 'PENDING' } });
-          await tx.transaction.create({ data: { userId: u.id, type: 'WITHDRAWAL', amount: parsedAmount, method: method || 'bank_transfer', walletNumber: walletNumber || '', reference: ref, status: 'PENDING' } });
+          const withdrawal = await tx.withdrawal.create({ data: { userId: u.id, amount: parsedAmount, method: method || 'bank_transfer', walletNumber: resolvedWalletNumber, reference: ref, status: 'PENDING' } });
+          await tx.transaction.create({ data: { userId: u.id, type: 'WITHDRAWAL', amount: parsedAmount, method: method || 'bank_transfer', walletNumber: resolvedWalletNumber, reference: ref, status: 'PENDING' } });
           await tx.auditLog.create({ data: { userId: u.id, action: 'Withdrawal Requested', amount: parsedAmount, timestamp: new Date() } });
           return withdrawal;
         });

@@ -369,12 +369,12 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
                     </h3>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '20px' }}>
                       {[
-                        { label: 'Main Wallet', value: `₱${walletInfo.main.toLocaleString()}`, color: '#0066FF' },
-                        { label: 'SemWallet', value: `₱${walletInfo.semWallet.toLocaleString()}`, color: '#10B981' },
-                        { label: 'Ongoing Wallet', value: `₱${walletInfo.ongoing.toLocaleString()}`, color: '#F59E0B' },
-                        { label: 'Total Investment', value: `₱${walletInfo.totalInvested.toLocaleString()}`, color: '#8B5CF6' },
-                        { label: 'Active VIP', value: walletInfo.activeVIP, color: '#EC4899' },
-                        { label: 'Remaining Days', value: walletInfo.remainingDays.toString(), color: '#06B6D4' },
+                        { label: 'Main Wallet', value: `₱${(walletInfo.main ?? 0).toLocaleString()}`, color: '#0066FF' },
+                        { label: 'SemWallet', value: `₱${(walletInfo.semWallet ?? 0).toLocaleString()}`, color: '#10B981' },
+                        { label: 'Ongoing Wallet', value: `₱${(walletInfo.ongoing ?? 0).toLocaleString()}`, color: '#F59E0B' },
+                        { label: 'Total Investment', value: `₱${(walletInfo.totalInvested ?? 0).toLocaleString()}`, color: '#8B5CF6' },
+                        { label: 'Active VIP', value: walletInfo.activeVIP ?? '—', color: '#EC4899' },
+                        { label: 'Remaining Days', value: (walletInfo.remainingDays ?? 0).toString(), color: '#06B6D4' },
                       ].map((w, i) => (
                         <div key={i} style={{ padding: '12px', borderRadius: '10px', background: `${w.color}08`, border: `1px solid ${w.color}15` }}>
                           <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>{w.label}</div>

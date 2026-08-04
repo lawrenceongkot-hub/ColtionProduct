@@ -156,6 +156,7 @@ export interface Transaction {
 }
 
 export interface EWallet {
+  id: string;
   userId: string;
   provider: 'GCash' | 'Maya';
   walletNumber: string;
