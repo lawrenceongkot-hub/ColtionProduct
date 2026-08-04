@@ -28,12 +28,22 @@ export interface WithdrawalRecord {
   user?: { fullName?: string; email?: string };
 }
 
+function normalizeStatus(status: string | undefined | null): string {
+  if (!status) return '';
+  return status.toLowerCase();
+}
+
+function normalizeWithdrawal(w: any): any {
+  if (!w) return w;
+  return { ...w, status: normalizeStatus(w.status) };
+}
+
 export const withdrawalService = {
   async getWithdrawals(): Promise<any[]> {
     try {
       const data = await adminApi.getWithdrawals();
       // ALWAYS return an array - never undefined/null/object
-      return Array.isArray(data) ? data : [];
+      return (Array.isArray(data) ? data : []).map(normalizeWithdrawal);
     } catch {
       return [];
     }

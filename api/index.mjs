@@ -727,7 +727,7 @@ app.use('/api', async (req, res) => {
     if (m === 'GET' && p === '/api/admin/withdrawals') {
       try {
         const u = getTokenUser(); if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin required' });
-        const w = await prisma.withdrawal.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true, phone: true, status: true } } } });
+        const w = await prisma.withdrawal.findMany({ orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true, phone: true } } } });
         const enriched = w.map(x => ({
           ...x,
           fee: 0,

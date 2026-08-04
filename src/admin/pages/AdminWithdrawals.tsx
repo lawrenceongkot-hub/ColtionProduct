@@ -317,7 +317,7 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
                     { label: 'Full Name', value: selectedW.userFullName },
                     { label: 'Email', value: selectedW.userEmail },
                     { label: 'Mobile Number', value: selectedW.userPhone },
-                    { label: 'Account Status', value: <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, background: selectedW.userStatus === 'active' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: selectedW.userStatus === 'active' ? '#10B981' : '#EF4444' }}>{selectedW.userStatus}</span> },
+                    { label: 'Account Status', value: <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, background: (selectedW.userStatus || 'active') === 'active' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: (selectedW.userStatus || 'active') === 'active' ? '#10B981' : '#EF4444' }}>{selectedW.userStatus || 'Active'}</span> },
                   ].map((f, i) => (
                     <div key={i} style={{ padding: '10px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
                       <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', fontWeight: 500, marginBottom: '4px' }}>{f.label}</div>
