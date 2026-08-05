@@ -10,7 +10,8 @@ export const adminRouter = Router();
 adminRouter.post('/login', async (req: AuthRequest, res: Response) => {
   try {
     const { username, password } = req.body;
-    const admin = await prisma.adminUser.findUnique({ where: { username } });
+    // Lowercase username for case-insensitive lookup (seed stores 'admin')
+    const admin = await prisma.adminUser.findUnique({ where: { username: String(username).toLowerCase().trim() } });
     if (!admin) return res.status(400).json({ error: 'Invalid credentials' });
 
     const valid = await bcrypt.compare(password, admin.password);
