@@ -30,7 +30,7 @@ function generateDisplayId(existingIds: string[]): string {
 // Register
 authRouter.post('/register', async (req: AuthRequest, res: Response) => {
   try {
-    const { fullName, email, phone, password, referralCode } = req.body;
+    const { fullName, email, phone, password, referralCode, deviceFingerprint } = req.body;
 
     // Validate required fields
     if (!fullName || !email || !phone || !password) {
@@ -46,6 +46,9 @@ authRouter.post('/register', async (req: AuthRequest, res: Response) => {
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Extract IP address for anti-abuse check
+    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || 'unknown';
 
     // Generate unique IDs
     const allUsers = await prisma.user.findMany({ select: { displayId: true, invitationCode: true } });
@@ -98,6 +101,58 @@ authRouter.post('/register', async (req: AuthRequest, res: Response) => {
       await tx.wallet.create({
         data: { userId: user.id, main: 0, semWallet: 0, ongoing: 0 },
       });
+
+      // Record registration fingerprint for anti-abuse tracking
+      await tx.registrationFingerprint.create({
+        data: {
+          userId: user.id,
+          fullName,
+          ipAddress,
+          deviceFingerprint: deviceFingerprint || 'unknown',
+        },
+      });
+
+      // Anti-abuse check: Only block bonus if BOTH IP AND device fingerprint match
+      const existingClaim = await tx.welcomeBonusClaim.findFirst({
+        where: {
+          ipAddress,
+          deviceFingerprint: deviceFingerprint || 'unknown',
+        },
+      });
+
+      const bonusEligible = !existingClaim;
+
+      if (bonusEligible) {
+        // Credit SemWallet += 100 (Welcome Bonus)
+        await tx.wallet.update({
+          where: { userId: user.id },
+          data: { semWallet: { increment: 100 } },
+        });
+
+        // Create WELCOME_BONUS transaction
+        await tx.transaction.create({
+          data: {
+            userId: user.id,
+            type: 'WELCOME_BONUS',
+            amount: 100,
+            method: 'Welcome Bonus',
+            reference: 'WELCOME-' + user.id.slice(-8) + '-' + Date.now(),
+            status: 'SUCCESS',
+            completedAt: new Date(),
+          },
+        });
+
+        // Record welcome bonus claim for anti-abuse tracking
+        await tx.welcomeBonusClaim.create({
+          data: {
+            userId: user.id,
+            amount: 100,
+            ipAddress,
+            deviceFingerprint: deviceFingerprint || 'unknown',
+            status: 'CLAIMED',
+          },
+        });
+      }
 
       // Record referral for user invitation
       if (invitedBy) {
@@ -348,7 +403,7 @@ authRouter.post('/logout', authenticateToken, async (req: AuthRequest, res: Resp
 // Google OAuth login/register
 authRouter.post('/google', async (req: AuthRequest, res: Response) => {
   try {
-    const { googleId, email, fullName, picture, referralCode } = req.body;
+    const { googleId, email, fullName, picture, referralCode, deviceFingerprint } = req.body;
     if (!googleId || !email || !fullName) {
       return res.status(400).json({ error: 'Missing required Google user data' });
     }
@@ -385,6 +440,9 @@ authRouter.post('/google', async (req: AuthRequest, res: Response) => {
         if (agent) referrerAgentId = agent.id;
       }
 
+      // Extract IP address for anti-abuse check
+      const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || 'unknown';
+
       // Execute all database operations in a single transaction for atomicity
       const result = await prisma.$transaction(async (tx) => {
         // Create user
@@ -410,6 +468,58 @@ authRouter.post('/google', async (req: AuthRequest, res: Response) => {
         await tx.wallet.create({
           data: { userId: newUser.id, main: 0, semWallet: 0, ongoing: 0 },
         });
+
+        // Record registration fingerprint for anti-abuse tracking
+        await tx.registrationFingerprint.create({
+          data: {
+            userId: newUser.id,
+            fullName,
+            ipAddress,
+            deviceFingerprint: deviceFingerprint || 'unknown',
+          },
+        });
+
+        // Anti-abuse check: Only block bonus if BOTH IP AND device fingerprint match
+        const existingClaim = await tx.welcomeBonusClaim.findFirst({
+          where: {
+            ipAddress,
+            deviceFingerprint: deviceFingerprint || 'unknown',
+          },
+        });
+
+        const bonusEligible = !existingClaim;
+
+        if (bonusEligible) {
+          // Credit SemWallet += 100 (Welcome Bonus)
+          await tx.wallet.update({
+            where: { userId: newUser.id },
+            data: { semWallet: { increment: 100 } },
+          });
+
+          // Create WELCOME_BONUS transaction
+          await tx.transaction.create({
+            data: {
+              userId: newUser.id,
+              type: 'WELCOME_BONUS',
+              amount: 100,
+              method: 'Welcome Bonus',
+              reference: 'WELCOME-' + newUser.id.slice(-8) + '-' + Date.now(),
+              status: 'SUCCESS',
+              completedAt: new Date(),
+            },
+          });
+
+          // Record welcome bonus claim for anti-abuse tracking
+          await tx.welcomeBonusClaim.create({
+            data: {
+              userId: newUser.id,
+              amount: 100,
+              ipAddress,
+              deviceFingerprint: deviceFingerprint || 'unknown',
+              status: 'CLAIMED',
+            },
+          });
+        }
 
         // Record referral
         if (invitedBy) {

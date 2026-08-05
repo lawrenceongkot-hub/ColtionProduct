@@ -287,6 +287,53 @@ adminRouter.put('/deposits/:id/approve', async (req: AuthRequest, res: Response)
             });
           }
         }
+
+        // Regular user referral commission (invitedBy)
+        if (user?.invitedBy) {
+          const inviter = await tx.user.findFirst({ where: { invitationCode: user.invitedBy } });
+          if (inviter) {
+            const commissionAmount = Math.round(deposit.amount * commissionRate);
+
+            // Credit inviter's Main Wallet
+            await tx.wallet.update({
+              where: { userId: inviter.id },
+              data: { main: { increment: commissionAmount } },
+            });
+
+            // Update inviter's totalReferralEarnings
+            await tx.user.update({
+              where: { id: inviter.id },
+              data: { totalReferralEarnings: { increment: commissionAmount } },
+            });
+
+            // Create REFERRAL_COMMISSION transaction
+            await tx.transaction.create({
+              data: {
+                userId: inviter.id,
+                type: 'REFERRAL_COMMISSION',
+                amount: commissionAmount,
+                method: `Referral Commission - ${user.fullName}`,
+                reference: 'REFCOM-' + deposit.reference.slice(-8),
+                status: 'SUCCESS',
+              },
+            });
+
+            // Create notification for referrer
+            await tx.notification.create({
+              data: {
+                userId: inviter.id,
+                type: 'REFERRAL_COMMISSION',
+                message: `You earned ₱${commissionAmount} referral commission from ${user.fullName}'s first deposit.`,
+              },
+            });
+
+            // Update referral status
+            await tx.referral.updateMany({
+              where: { referredUserId: deposit.userId },
+              data: { status: 'COMMISSION_PAID' },
+            });
+          }
+        }
       }
     });
 
