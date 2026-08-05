@@ -291,55 +291,154 @@ app.use('/api', async (req, res) => {
       catch { return res.status(403).json({ error: 'Invalid token' }); }
     }
 
-    // ============ MOXSYS PAYMENT GATEWAY ============
-    // ALL PAYMENT ROUTES ARE PROXIED TO THE EC2 VPS BACKEND (15.135.198.121)
-    // This ensures Moxsys always receives requests from the whitelisted VPS IP.
-    // The Vercel serverless function NEVER calls Moxsys directly.
-    // JWT tokens are re-signed with EC2's secret so the EC2 backend can verify them.
-    if (p.startsWith('/api/payments/')) {
+    // ============ MOXSYS PAYMENT GATEWAY (PRODUCTION - DIRECT) ============
+    // Implemented directly in Vercel serverless to guarantee production credentials.
+    // Uses MOXSYS_API_KEY from Vercel environment variables (production key).
+    // Merchant: MPAY | Mode: live | Endpoint: platform.moxsys.io/api/v1/live/invoices/create
+
+    // POST /api/payments/moxsys/checkout - Create Moxsys invoice
+    if (m === 'POST' && p === '/api/payments/moxsys/checkout') {
       try {
-        const ec2BaseUrl = process.env.EC2_BACKEND_URL || 'http://15.135.198.121';
-        const targetUrl = `${ec2BaseUrl}${p}`;
-        
-        const headers = {
-          'Content-Type': 'application/json',
-        };
-        
-        // Re-sign the JWT with EC2's secret so EC2 can verify it
-        const authHeader = req.headers['authorization'];
-        if (authHeader) {
-          try {
-            const vercelToken = authHeader.split(' ')[1];
-            const decoded = jwt.verify(vercelToken, process.env.JWT_SECRET || 'fallback');
-            // Re-sign with EC2's JWT secret (defaults to 'fallback' to match EC2 .env)
-            const ec2Token = jwt.sign(
-              { id: decoded.id, email: decoded.email, role: decoded.role },
-              process.env.EC2_JWT_SECRET || 'fallback',
-              { expiresIn: '15m' }
-            );
-            headers['Authorization'] = 'Bearer ' + ec2Token;
-          } catch (e) {
-            // Token verification failed - forward original (EC2 will reject it)
-            headers['Authorization'] = authHeader;
-          }
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const { amount, method } = body;
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+
+        const parsedAmount = Math.round(parseFloat(amount));
+
+        // PRODUCTION credentials from environment
+        const moxsysApiKey = process.env.MOXSYS_API_KEY;
+        const moxsysMode = process.env.MOXSYS_MODE || 'live';
+        const merchantName = process.env.MOXSYS_MERCHANT_NAME || 'MPAY';
+
+        if (!moxsysApiKey) {
+          console.error('[Moxsys] Missing MOXSYS_API_KEY in Vercel env');
+          return res.status(500).json({ error: 'Payment gateway not configured (missing API key)' });
         }
-        
-        console.log('[Vercel Proxy] Forwarding', m, p, 'to EC2 backend');
-        
-        const proxyRes = await fetch(targetUrl, {
-          method: m,
-          headers,
-          body: m === 'GET' ? undefined : JSON.stringify(body),
+
+        console.log('[Moxsys] Config:', { merchant: merchantName, mode: moxsysMode, apiKeyPrefix: moxsysApiKey.substring(0, 8) + '...', apiKeyLength: moxsysApiKey.length });
+
+        const ref = 'DEP-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+        const baseUrl = process.env.FRONTEND_URL || 'https://coltionproduct.vercel.app';
+
+        const methodMap = { 'GCash': 'gcash', 'Maya': 'maya', 'QRPH': 'qrph', 'GrabPay': 'grabpay', 'GoTyme': 'gotyme', 'ShopeePay': 'shopeepay', 'UnionBank': 'unionbank' };
+        const paymentMethod = methodMap[method] || 'checkout';
+
+        const idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => { const r = (Math.random() * 16) | 0; const v = c === 'x' ? r : (r & 0x3) | 0x8; return v.toString(16); });
+
+        const moxsysUrl = `https://platform.moxsys.io/api/v1/${moxsysMode}/invoices/create`;
+        const moxsysPayload = {
+          external_id: ref,
+          amount: parsedAmount,
+          payer_email: u.email || '',
+          description: `Wallet Deposit - ${ref}`,
+          success_redirect_url: `${baseUrl}/payment-gateway?status=success&ref=${encodeURIComponent(ref)}`,
+          failure_redirect_url: `${baseUrl}/payment-gateway?status=failed&ref=${encodeURIComponent(ref)}`,
+          payment_method: paymentMethod,
+          callback_url: `${baseUrl}/api/payments/moxsys/webhook`,
+          metadata: { reference: ref, userId: u.id },
+        };
+
+        console.log('[Moxsys] POST', moxsysUrl);
+        console.log('[Moxsys] Payload:', JSON.stringify(moxsysPayload));
+
+        const moxsysRes = await fetch(moxsysUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': 'Bearer ' + moxsysApiKey, 'Idempotency-Key': idempotencyKey },
+          body: JSON.stringify(moxsysPayload),
         });
-        
-        const proxyText = await proxyRes.text();
-        let proxyData;
-        try { proxyData = JSON.parse(proxyText); } catch { proxyData = { raw: proxyText }; }
-        
-        return res.status(proxyRes.status).json(proxyData);
+
+        const moxsysText = await moxsysRes.text();
+        console.log('[Moxsys] HTTP Status:', moxsysRes.status);
+        console.log('[Moxsys] Response:', moxsysText.substring(0, 2000));
+
+        let moxsysData;
+        try { moxsysData = JSON.parse(moxsysText); } catch { moxsysData = { raw: moxsysText }; }
+
+        if (!moxsysRes.ok) {
+          const providerMsg = moxsysData?.message || moxsysData?.error || moxsysData?.errors?.[0]?.message || moxsysData?.detail || moxsysData?.raw || 'Payment gateway error';
+          console.error('[Moxsys] REJECTED:', JSON.stringify({ httpStatus: moxsysRes.status, requestUrl: moxsysUrl, responseBody: moxsysData }));
+          return res.status(400).json({ error: providerMsg, provider: 'Moxsys', providerStatus: moxsysRes.status, providerResponse: moxsysData });
+        }
+
+        const invoice = moxsysData.data || moxsysData;
+        const invoiceUrl = invoice.invoice_url || invoice.checkout_url || '';
+        const invoiceId = invoice.id || '';
+        const qrCode = invoice.qr_code || invoice.qrString || invoice.qr || null;
+        const deeplink = invoice.deeplink || invoice.deep_link || null;
+
+        // SANDBOX DETECTION: Block sandbox checkout URLs
+        if (invoiceUrl && /sandbox|test|demo|simulate/i.test(invoiceUrl)) {
+          console.error('[Moxsys] ⚠️  SANDBOX URL DETECTED:', invoiceUrl);
+          return res.status(500).json({
+            error: 'Payment gateway returned a sandbox checkout URL. Verify MOXSYS_API_KEY is a production key.',
+            provider: 'Moxsys', sandboxUrl: invoiceUrl, requestUrl: moxsysUrl, merchant: merchantName, mode: moxsysMode,
+          });
+        }
+
+        console.log('[Moxsys] Invoice created:', JSON.stringify({ id: invoiceId, url: invoiceUrl }));
+
+        // Create deposit record
+        const deposit = await prisma.$transaction(async (tx) => {
+          const d = await tx.deposit.create({ data: { userId: u.id, amount: parseFloat(amount), method: method || 'moxsys', reference: ref, proofOfPayment: invoiceId || '', status: 'PENDING' } });
+          await tx.transaction.create({ data: { userId: u.id, type: 'DEPOSIT', amount: parseFloat(amount), method: method || 'moxsys', reference: ref, status: 'PENDING' } });
+          return d;
+        });
+
+        return res.status(201).json({ id: deposit.id, reference: ref, checkoutUrl: invoiceUrl, sessionId: invoiceId, qrCode, deeplink, amount: parseFloat(amount), method: method || 'moxsys', status: 'PENDING', provider: 'Moxsys', providerResponse: invoice });
       } catch (e) {
-        console.error('[Vercel Proxy] Payment proxy error:', e?.message || e);
-        return res.status(502).json({ error: 'Payment gateway temporarily unavailable', provider: 'EC2-proxy' });
+        console.error('Moxsys checkout error:', e?.message || e);
+        return res.status(500).json({ error: e?.message || 'Failed to create payment' });
+      }
+    }
+
+    // GET /api/payments/moxsys/status/:ref - Check payment status
+    if (m === 'GET' && p.startsWith('/api/payments/moxsys/status/')) {
+      try {
+        const u = getTokenUser(); if (!u) return res.status(401).json({ error: 'Token required' });
+        const ref = p.replace('/api/payments/moxsys/status/', '');
+        const deposit = await prisma.deposit.findFirst({ where: { reference: ref, userId: u.id } });
+        if (!deposit) return res.status(404).json({ error: 'Deposit not found' });
+        return res.json({ reference: deposit.reference, status: deposit.status, amount: deposit.amount, method: deposit.method });
+      } catch { return res.status(500).json({ error: 'Failed to check payment status' }); }
+    }
+
+    // POST /api/payments/moxsys/webhook - Moxsys callback (PUBLIC, no auth)
+    if (m === 'POST' && p === '/api/payments/moxsys/webhook') {
+      try {
+        const event = body;
+        const status = (event?.status || '').toLowerCase();
+        const externalId = event?.external_id || '';
+
+        console.log('[Moxsys Webhook] Received:', JSON.stringify(event));
+        if (!externalId) return res.json({ status: 'received', error: 'Missing external_id' });
+
+        const deposit = await prisma.deposit.findFirst({ where: { reference: externalId } });
+        if (!deposit) { console.warn('[Moxsys Webhook] Deposit not found:', externalId); return res.status(404).json({ error: 'Deposit not found' }); }
+
+        let mappedStatus = null;
+        if (status === 'paid' || status === 'success' || status === 'completed') mappedStatus = 'SUCCESS';
+        else if (status === 'failed' || status === 'cancelled' || status === 'canceled' || status === 'expired') mappedStatus = 'FAILED';
+
+        if (!mappedStatus) return res.json({ status: 'received' });
+
+        if (deposit.status === 'PENDING') {
+          await prisma.$transaction(async (tx) => {
+            await tx.deposit.update({ where: { id: deposit.id }, data: { status: mappedStatus, completedAt: mappedStatus === 'SUCCESS' ? new Date() : deposit.completedAt || new Date(), approvedBy: mappedStatus === 'SUCCESS' ? 'Moxsys' : deposit.approvedBy || 'Moxsys', rejectionReason: mappedStatus === 'FAILED' ? (event?.reason || event?.message || `Payment ${status}`) : deposit.rejectionReason } });
+            if (mappedStatus === 'SUCCESS') {
+              await tx.wallet.update({ where: { userId: deposit.userId }, data: { semWallet: { increment: deposit.amount } } });
+              await tx.transaction.updateMany({ where: { reference: deposit.reference }, data: { status: 'SUCCESS', completedAt: new Date() } });
+              await tx.notification.create({ data: { userId: deposit.userId, type: 'DEPOSIT_APPROVED', message: `Your deposit of ₱${deposit.amount.toLocaleString()} has been approved.`, read: false } });
+            } else {
+              await tx.transaction.updateMany({ where: { reference: deposit.reference }, data: { status: 'FAILED', completedAt: new Date() } });
+            }
+          });
+        }
+        return res.json({ status: 'received', depositStatus: mappedStatus, reference: externalId });
+      } catch (e) {
+        console.error('Moxsys webhook error:', e?.message || e);
+        return res.status(500).json({ error: 'Webhook processing failed' });
       }
     }
 
