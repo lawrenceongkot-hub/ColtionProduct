@@ -12,6 +12,12 @@ export const paymentWebhookRouter = Router();
 // POST /api/payments/moxsys/checkout - Create a payment checkout session via real Moxsys API
 paymentRouter.post('/moxsys/checkout', async (req: AuthRequest, res: Response) => {
   try {
+    // Authentication is enforced by middleware, but double-check for safety
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const userId = req.user.id;
+
     const { amount, method } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
 
@@ -53,7 +59,7 @@ paymentRouter.post('/moxsys/checkout', async (req: AuthRequest, res: Response) =
       failure_redirect_url: `${baseUrl}/payment-gateway?status=failed&ref=${encodeURIComponent(ref)}`,
       payment_method: paymentMethod,
       callback_url: `${baseUrl}/api/payments/moxsys/webhook`,
-      metadata: { reference: ref, userId: req.user?.id },
+      metadata: { reference: ref, userId },
     };
 
     console.log('[Moxsys] POST', moxsysUrl);
@@ -115,7 +121,7 @@ paymentRouter.post('/moxsys/checkout', async (req: AuthRequest, res: Response) =
     const deposit = await prisma.$transaction(async (tx) => {
       const d = await tx.deposit.create({
         data: {
-          userId: req.user!.id,
+          userId,
           amount: parseFloat(amount),
           method: method || 'moxsys',
           reference: ref,
@@ -125,7 +131,7 @@ paymentRouter.post('/moxsys/checkout', async (req: AuthRequest, res: Response) =
       });
       await tx.transaction.create({
         data: {
-          userId: req.user!.id,
+          userId,
           type: 'DEPOSIT',
           amount: parseFloat(amount),
           method: method || 'moxsys',
@@ -158,8 +164,11 @@ paymentRouter.post('/moxsys/checkout', async (req: AuthRequest, res: Response) =
 // GET /api/payments/moxsys/status/:ref - Check payment status
 paymentRouter.get('/moxsys/status/:ref', async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
     const ref = req.params.ref as string;
-    const deposit = await prisma.deposit.findFirst({ where: { reference: ref, userId: req.user!.id } });
+    const deposit = await prisma.deposit.findFirst({ where: { reference: ref, userId: req.user.id } });
     if (!deposit) return res.status(404).json({ error: 'Deposit not found' });
     return res.json({ reference: deposit.reference, status: deposit.status, amount: deposit.amount, method: deposit.method });
   } catch {
@@ -170,7 +179,7 @@ paymentRouter.get('/moxsys/status/:ref', async (req: AuthRequest, res: Response)
 // POST /api/payments/moxsys/webhook - Moxsys callback for payment status updates
 // This is PUBLIC (no auth) because Moxsys calls this URL directly.
 // Idempotency: only process if deposit.status === 'PENDING'
-paymentWebhookRouter.post('/webhook', async (req: Request, res: Response) => {
+paymentWebhookRouter.post('/moxsys/webhook', async (req: Request, res: Response) => {
   try {
     const event = req.body;
     const status = (event?.status || '').toLowerCase();
