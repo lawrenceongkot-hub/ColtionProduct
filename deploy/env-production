@@ -11,7 +11,7 @@ FRONTEND_URL="http://15.135.198.121"
 
 # Moxsys Payment Gateway - PRODUCTION (MPAY merchant)
 # Set real values in server/.env on the EC2 VPS only. Never expose to frontend.
-MOXSYS_API_KEY="REPLACE_WITH_PRODUCTION_API_KEY"
+MOXSYS_API_KEY="ccIgBjiux7t6GsSioRavXHzYo6jl42gfIsPYFw4vB1wZP8lBiG"
 MOXSYS_MERCHANT_NAME="MPAY"
 MOXSYS_MODE="live"
 PAYMENT_GATEWAY_MODE="live"
