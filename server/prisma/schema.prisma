@@ -62,6 +62,7 @@ model User {
   totalReferralEarnings Float   @default(0)
   verificationCode     String?
   verificationStatus   String   @default("NONE")
+  status               String   @default("active")
   verifiedAt           DateTime?
   verificationRequestedAt DateTime?
   createdAt            DateTime @default(now())

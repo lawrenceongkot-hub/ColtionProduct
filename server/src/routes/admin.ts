@@ -525,12 +525,318 @@ adminRouter.get('/settings', async (_req: AuthRequest, res: Response) => {
 
 adminRouter.put('/settings', async (req: AuthRequest, res: Response) => {
   try {
-    const settings = await prisma.platformSettings.update({
+    const data = { ...req.body };
+    // Serialize complex fields to JSON strings BEFORE saving to Prisma
+    if (data.paymentMethods && typeof data.paymentMethods === 'object') {
+      data.paymentMethods = JSON.stringify(data.paymentMethods);
+    }
+    if (data.ipWhitelist && Array.isArray(data.ipWhitelist)) {
+      data.ipWhitelist = JSON.stringify(data.ipWhitelist);
+    }
+    if (data.ipBlacklist && Array.isArray(data.ipBlacklist)) {
+      data.ipBlacklist = JSON.stringify(data.ipBlacklist);
+    }
+    if (data.countryRestrictions && typeof data.countryRestrictions === 'object') {
+      data.countryRestrictions = JSON.stringify(data.countryRestrictions);
+    }
+    const settings = await prisma.platformSettings.upsert({
       where: { id: 'default' },
-      data: req.body,
+      update: data,
+      create: { id: 'default', ...data },
     });
     res.json(settings);
-  } catch {
+  } catch (e: any) {
+    console.error('Update settings error:', e?.message || e);
     res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+// ============ ADMIN USER MANAGEMENT ============
+
+// Get audit log for a user
+adminRouter.get('/users/:id/audit', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const logs = await prisma.auditLog.findMany({
+      where: { userId: id },
+      orderBy: { timestamp: 'desc' },
+      take: 50,
+    });
+    res.json(logs);
+  } catch {
+    res.status(500).json({ error: 'Failed to get audit log' });
+  }
+});
+
+// Get wallet balances for a user
+adminRouter.get('/users/:id/wallet', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const w = await prisma.wallet.findUnique({ where: { userId: id } });
+    res.json(w || { main: 0, semWallet: 0, ongoing: 0 });
+  } catch {
+    res.status(500).json({ error: 'Failed to get wallet' });
+  }
+});
+
+// Add Main Wallet balance
+adminRouter.put('/users/:id/wallet/main/add', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const { amount } = req.body;
+    if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+    const parsedAmount = parseFloat(amount);
+    const ref = 'ADJ-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
+    const result = await prisma.$transaction(async (tx) => {
+      const w = await tx.wallet.update({ where: { userId: id }, data: { main: { increment: parsedAmount } } });
+      await tx.transaction.create({ data: { userId: id, type: 'ADMIN_ADJUSTMENT', amount: parsedAmount, method: 'Admin', reference: ref, status: 'SUCCESS', approvedBy: req.user?.email, completedAt: new Date() } });
+      await tx.auditLog.create({ data: { adminId: req.user?.id, adminName: req.user?.email, adminRole: 'admin', userId: id, action: 'Add Main Wallet', amount: parsedAmount, timestamp: new Date() } });
+      return w;
+    });
+    res.json(result);
+  } catch (e: any) {
+    console.error('Add main wallet error:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'Failed' });
+  }
+});
+
+// Deduct Main Wallet balance
+adminRouter.put('/users/:id/wallet/main/deduct', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const { amount } = req.body;
+    if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+    const parsedAmount = parseFloat(amount);
+    const w = await prisma.wallet.findUnique({ where: { userId: id } });
+    if (!w || w.main < parsedAmount) return res.status(400).json({ error: 'Insufficient balance' });
+    const ref = 'ADJ-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.wallet.update({ where: { userId: id }, data: { main: { decrement: parsedAmount } } });
+      await tx.transaction.create({ data: { userId: id, type: 'ADMIN_DEDUCTION', amount: parsedAmount, method: 'Admin', reference: ref, status: 'SUCCESS', approvedBy: req.user?.email, completedAt: new Date() } });
+      await tx.auditLog.create({ data: { adminId: req.user?.id, adminName: req.user?.email, adminRole: 'admin', userId: id, action: 'Deduct Main Wallet', amount: parsedAmount, timestamp: new Date() } });
+      return updated;
+    });
+    res.json(result);
+  } catch (e: any) {
+    console.error('Deduct main wallet error:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'Failed' });
+  }
+});
+
+// Add SemWallet balance
+adminRouter.put('/users/:id/wallet/sem/add', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const { amount } = req.body;
+    if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+    const parsedAmount = parseFloat(amount);
+    const ref = 'ADJ-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
+    const result = await prisma.$transaction(async (tx) => {
+      const w = await tx.wallet.update({ where: { userId: id }, data: { semWallet: { increment: parsedAmount } } });
+      await tx.transaction.create({ data: { userId: id, type: 'ADMIN_ADJUSTMENT', amount: parsedAmount, method: 'Admin', reference: ref, status: 'SUCCESS', approvedBy: req.user?.email, completedAt: new Date() } });
+      await tx.auditLog.create({ data: { adminId: req.user?.id, adminName: req.user?.email, adminRole: 'admin', userId: id, action: 'Add SemWallet', amount: parsedAmount, timestamp: new Date() } });
+      return w;
+    });
+    res.json(result);
+  } catch (e: any) {
+    console.error('Add sem wallet error:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'Failed' });
+  }
+});
+
+// Deduct SemWallet balance
+adminRouter.put('/users/:id/wallet/sem/deduct', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const { amount } = req.body;
+    if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+    const parsedAmount = parseFloat(amount);
+    const w = await prisma.wallet.findUnique({ where: { userId: id } });
+    if (!w || w.semWallet < parsedAmount) return res.status(400).json({ error: 'Insufficient balance' });
+    const ref = 'ADJ-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.wallet.update({ where: { userId: id }, data: { semWallet: { decrement: parsedAmount } } });
+      await tx.transaction.create({ data: { userId: id, type: 'ADMIN_DEDUCTION', amount: parsedAmount, method: 'Admin', reference: ref, status: 'SUCCESS', approvedBy: req.user?.email, completedAt: new Date() } });
+      await tx.auditLog.create({ data: { adminId: req.user?.id, adminName: req.user?.email, adminRole: 'admin', userId: id, action: 'Deduct SemWallet', amount: parsedAmount, timestamp: new Date() } });
+      return updated;
+    });
+    res.json(result);
+  } catch (e: any) {
+    console.error('Deduct sem wallet error:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'Failed' });
+  }
+});
+
+// Ban user
+adminRouter.put('/users/:id/ban', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const user = await prisma.user.update({ where: { id }, data: { status: 'banned' } });
+    await prisma.userSession.deleteMany({ where: { userId: id } });
+    await prisma.auditLog.create({ data: { adminId: req.user?.id, adminName: req.user?.email, adminRole: 'admin', userId: id, action: 'Account Banned', timestamp: new Date() } });
+    res.json(user);
+  } catch {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// Unban user
+adminRouter.put('/users/:id/unban', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const user = await prisma.user.update({ where: { id }, data: { status: 'active' } });
+    await prisma.auditLog.create({ data: { adminId: req.user?.id, adminName: req.user?.email, adminRole: 'admin', userId: id, action: 'Account Unbanned', timestamp: new Date() } });
+    res.json(user);
+  } catch {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// Suspend user
+adminRouter.put('/users/:id/suspend', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const user = await prisma.user.update({ where: { id }, data: { status: 'suspended' } });
+    await prisma.auditLog.create({ data: { adminId: req.user?.id, adminName: req.user?.email, adminRole: 'admin', userId: id, action: 'Account Suspended', timestamp: new Date() } });
+    res.json(user);
+  } catch {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// Activate user
+adminRouter.put('/users/:id/activate', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const user = await prisma.user.update({ where: { id }, data: { status: 'active' } });
+    await prisma.auditLog.create({ data: { adminId: req.user?.id, adminName: req.user?.email, adminRole: 'admin', userId: id, action: 'Account Activated', timestamp: new Date() } });
+    res.json(user);
+  } catch {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// Force logout user
+adminRouter.put('/users/:id/force-logout', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    await prisma.userSession.deleteMany({ where: { userId: id } });
+    await prisma.auditLog.create({ data: { adminId: req.user?.id, adminName: req.user?.email, adminRole: 'admin', userId: id, action: 'Force Logout', timestamp: new Date() } });
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// Change user password
+adminRouter.put('/users/:id/password', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    const user = await prisma.user.update({ where: { id }, data: { password: await bcrypt.hash(newPassword, 12) } });
+    await prisma.userSession.deleteMany({ where: { userId: id } });
+    await prisma.auditLog.create({ data: { adminId: req.user?.id, adminName: req.user?.email, adminRole: 'admin', userId: id, action: 'Password Changed', timestamp: new Date() } });
+    res.json(user);
+  } catch {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// Wipe all users
+adminRouter.delete('/users/wipe-all', async (req: AuthRequest, res: Response) => {
+  try {
+    const before = { users: await prisma.user.count(), transactions: await prisma.transaction.count(), deposits: await prisma.deposit.count(), withdrawals: await prisma.withdrawal.count(), wallets: await prisma.wallet.count() };
+    await prisma.$transaction(async (tx) => {
+      await tx.changePasswordToken.deleteMany({});
+      await tx.notification.deleteMany({});
+      await tx.walletLedger.deleteMany({});
+      await tx.auditLog.deleteMany({});
+      await tx.welcomeBonusClaim.deleteMany({});
+      await tx.registrationFingerprint.deleteMany({});
+      await tx.verificationRequest.deleteMany({});
+      await tx.agentCommission.deleteMany({});
+      await tx.agentReferral.deleteMany({});
+      await tx.agentProfile.deleteMany({});
+      await tx.referral.deleteMany({});
+      await tx.eWallet.deleteMany({});
+      await tx.investmentOrder.deleteMany({});
+      await tx.transaction.deleteMany({});
+      await tx.withdrawal.deleteMany({});
+      await tx.deposit.deleteMany({});
+      await tx.userSession.deleteMany({});
+      await tx.wallet.deleteMany({});
+      await tx.user.deleteMany({});
+    });
+    const after = { users: await prisma.user.count(), transactions: await prisma.transaction.count(), deposits: await prisma.deposit.count(), withdrawals: await prisma.withdrawal.count(), wallets: await prisma.wallet.count() };
+    res.json({ success: true, message: 'All registered accounts and data wiped. Statistics reset.', before, after });
+  } catch (e: any) {
+    console.error('Wipe all users error:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'Failed to wipe users' });
+  }
+});
+
+// ============ ADMIN ORDER MANAGEMENT ============
+
+// Pause order
+adminRouter.put('/orders/:id/pause', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const order = await prisma.investmentOrder.update({ where: { id }, data: { status: 'CANCELLED' } });
+    res.json(order);
+  } catch {
+    res.status(500).json({ error: 'Failed to pause order' });
+  }
+});
+
+// Resume order
+adminRouter.put('/orders/:id/resume', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const order = await prisma.investmentOrder.update({ where: { id }, data: { status: 'ACTIVE' } });
+    res.json(order);
+  } catch {
+    res.status(500).json({ error: 'Failed to resume order' });
+  }
+});
+
+// Cancel order
+adminRouter.put('/orders/:id/cancel', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const { reason } = req.body;
+    const order = await prisma.investmentOrder.update({ where: { id }, data: { status: 'CANCELLED' } });
+    res.json(order);
+  } catch {
+    res.status(500).json({ error: 'Failed to cancel order' });
+  }
+});
+
+// Complete order
+adminRouter.put('/orders/:id/complete', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const order = await prisma.investmentOrder.update({ where: { id }, data: { status: 'COMPLETED' } });
+    res.json(order);
+  } catch {
+    res.status(500).json({ error: 'Failed to complete order' });
+  }
+});
+
+// Manual credit profit
+adminRouter.put('/orders/:id/credit-profit', async (req: AuthRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const order = await prisma.investmentOrder.findUnique({ where: { id } });
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    const profitAmount = order.dailyProfitPerDay;
+    await prisma.$transaction(async (tx) => {
+      await tx.wallet.update({ where: { userId: order.userId }, data: { ongoing: { increment: profitAmount } } });
+      await tx.investmentOrder.update({ where: { id }, data: { completedDays: { increment: 1 }, currentProfit: { increment: profitAmount } } });
+      await tx.transaction.create({ data: { userId: order.userId, type: 'DAILY_PROFIT', amount: profitAmount, method: 'system', reference: 'PROFIT-' + order.id.slice(-8) + '-' + Date.now(), status: 'SUCCESS' } });
+    });
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Failed to credit profit' });
   }
 });

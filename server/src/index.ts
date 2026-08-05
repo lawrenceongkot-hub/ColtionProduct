@@ -16,7 +16,9 @@ import { agentRouter } from './routes/agent';
 import { ewalletRouter } from './routes/ewallet';
 import { dashboardRouter } from './routes/dashboard';
 import { adminAgentsRouter } from './routes/adminAgents';
+import { paymentRouter } from './routes/payment';
 import { authenticateToken } from './middleware/auth';
+import prisma from './db';
 
 dotenv.config();
 
@@ -41,6 +43,76 @@ app.get('/api/health', (_req, res) => {
 // Public routes
 app.use('/api/auth', authRouter);
 app.use('/api/settings', settingsRouter);
+
+// Payment routes (webhook is public, checkout/status require auth)
+app.use('/api/payments', paymentRouter);
+
+// ============================================================
+// LANDING STATS - Public marketing data (fake, never real user data)
+// ============================================================
+app.get('/api/landing/stats', async (_req, res) => {
+  try {
+    const settings = await prisma.platformSettings.findFirst();
+    const totalUsers = await prisma.user.count({ where: { isDemo: false } });
+    const totalInvestments = await prisma.investmentOrder.aggregate({ _sum: { buyAmount: true }, where: { status: 'ACTIVE', user: { isDemo: false } } });
+    const activeInvestors = await prisma.investmentOrder.count({ where: { status: 'ACTIVE', user: { isDemo: false } } });
+    const activeInvestorsDisplay = settings?.landingActiveInvestorsDisplay || activeInvestors;
+    const investorCount = Math.min(activeInvestorsDisplay, 10);
+
+    // Generate fake marketing data - NEVER real user data
+    const FAKE_FIRST_NAMES = ['Rose', 'Karl', 'John', 'Maria', 'James', 'Anna', 'Mark', 'Liza', 'Paul', 'Grace', 'Ryan', 'Mia', 'Josh', 'Ella', 'Ben', 'Nina', 'Leo', 'Sara', 'Tom', 'Ivy'];
+    const FAKE_LAST_NAMES = ['Bangita', 'Gonzales', 'Cruz', 'Santos', 'Reyes', 'Garcia', 'Mendoza', 'Torres', 'Flores', 'Ramos', 'Aquino', 'Dela Cruz', 'Villanueva', 'Navarro', 'Salazar', 'Bautista', 'Ocampo', 'Padilla', 'Domingo', 'Castillo'];
+
+    function generateFakeInvestors(count: number): Array<{ id: string; fullName: string; displayId: string; amount: number; date: string }> {
+      const investors: Array<{ id: string; fullName: string; displayId: string; amount: number; date: string }> = [];
+      for (let i = 0; i < count; i++) {
+        const first = FAKE_FIRST_NAMES[Math.floor(Math.random() * FAKE_FIRST_NAMES.length)];
+        const last = FAKE_LAST_NAMES[Math.floor(Math.random() * FAKE_LAST_NAMES.length)];
+        const maskedFirst = first.slice(0, 4) + '****';
+        const maskedLast = last.slice(0, 4) + '***';
+        const phone = '09' + String(Math.floor(Math.random() * 900000000) + 100000000).slice(0, 9);
+        const maskedPhone = phone.slice(0, 4) + '*****' + phone.slice(-2);
+        const amount = Math.floor(Math.random() * 19000) + 1000;
+        investors.push({
+          id: 'fake-' + i + '-' + Date.now(),
+          fullName: `${maskedFirst} ${maskedLast}`,
+          displayId: maskedPhone,
+          amount,
+          date: new Date(Date.now() - i * 86400000).toISOString(),
+        });
+      }
+      return investors;
+    }
+
+    const fakeLatestInvestors = generateFakeInvestors(investorCount);
+    const fakeTopInvestors = generateFakeInvestors(Math.min(investorCount, 10)).map((inv, i) => ({
+      ...inv,
+      totalInvested: inv.amount * (10 - i),
+    }));
+
+    return res.json({
+      totalUsers,
+      totalInvestments: totalInvestments._sum.buyAmount || 0,
+      activeInvestors,
+      latestInvestors: settings?.landingEnableLatestInvestors !== false ? fakeLatestInvestors : [],
+      latestInvestments: settings?.landingEnableLatestInvestors !== false ? fakeLatestInvestors.map(inv => ({ ...inv, plan: 'VIP ' + (Math.floor(Math.random() * 10) + 1) })) : [],
+      topInvestors: settings?.landingEnableTopInvestors !== false ? fakeTopInvestors : [],
+      recentRegistrations: [],
+      displaySettings: {
+        totalUsersDisplay: settings?.landingTotalUsersDisplay || totalUsers,
+        totalInvestmentsDisplay: settings?.landingTotalInvestmentsDisplay || (totalInvestments._sum.buyAmount || 0),
+        activeInvestorsDisplay,
+        enableLatestInvestors: settings?.landingEnableLatestInvestors ?? true,
+        enableTopInvestors: settings?.landingEnableTopInvestors ?? true,
+        enableLiveCounter: settings?.landingEnableLiveCounter ?? true,
+        enableAnimatedNumbers: settings?.landingEnableAnimatedNumbers ?? true,
+      },
+    });
+  } catch (e: any) {
+    console.error('Landing stats error:', e?.message || e);
+    return res.status(500).json({ error: e?.message || 'Failed' });
+  }
+});
 
 // Protected routes
 app.use('/api/wallet', authenticateToken, walletRouter);
