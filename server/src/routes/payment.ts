@@ -21,7 +21,7 @@ paymentRouter.post('/moxsys/checkout', async (req: AuthRequest, res: Response) =
     const { amount, method } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
 
-    const parsedAmount = Math.round(parseFloat(amount) * 100); // Moxsys uses centavos (integer)
+    const parsedAmount = Math.round(parseFloat(amount)); // Moxsys expects amount in pesos (not centavos)
     const moxsysApiKey = process.env.MOXSYS_API_KEY || 'Ht23THehMXQmOa9QL91mkAKhmISIaTTATlzaVK43GghH4oW8IU';
     const moxsysMode = process.env.MOXSYS_MODE || 'sandbox';
 
