@@ -31,7 +31,11 @@ adminRouter.post('/login', async (req: AuthRequest, res: Response) => {
       },
     });
 
-    res.json({ token, admin: { id: admin.id, username: admin.username, name: admin.name, role: admin.role } });
+    res.json({
+      accessToken: token,
+      refreshToken: token,
+      user: { id: admin.id, username: admin.username, email: admin.username, fullName: admin.name, role: admin.role },
+    });
   } catch {
     res.status(500).json({ error: 'Login failed' });
   }
