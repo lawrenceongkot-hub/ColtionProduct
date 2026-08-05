@@ -297,7 +297,7 @@ app.use('/api', async (req, res) => {
     // The Vercel serverless function NEVER calls Moxsys directly.
     if (p.startsWith('/api/payments/')) {
       try {
-        const ec2BaseUrl = process.env.EC2_BACKEND_URL || 'http://15.135.198.121:3001';
+        const ec2BaseUrl = process.env.EC2_BACKEND_URL || 'http://15.135.198.121';
         const targetUrl = `${ec2BaseUrl}${p}`;
         
         // Preserve Authorization header for authenticated routes
