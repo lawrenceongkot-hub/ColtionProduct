@@ -161,6 +161,9 @@ adminRouter.delete('/users/wipe-all', async (req: AuthRequest, res: Response) =>
       await tx.userSession.deleteMany({});
       await tx.wallet.deleteMany({});
       await tx.user.deleteMany({});
+    }, {
+      timeout: 30000,
+      maxWait: 30000,
     });
     const after = { users: await prisma.user.count(), transactions: await prisma.transaction.count(), deposits: await prisma.deposit.count(), withdrawals: await prisma.withdrawal.count(), wallets: await prisma.wallet.count() };
     res.json({ success: true, message: 'All registered accounts and data wiped. Statistics reset.', before, after });
