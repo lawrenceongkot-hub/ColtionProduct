@@ -297,7 +297,7 @@ app.use('/api', async (req, res) => {
     // The browser never communicates directly with the payment provider.
     // Secrets live ONLY in the EC2 backend .env (git-ignored). Never exposed to frontend.
 
-    const EC2_BACKEND = process.env.EC2_BACKEND_URL || 'http://15.135.198.121:3001';
+    const EC2_BACKEND = process.env.EC2_BACKEND_URL || 'http://15.135.198.121';
 
     // POST /api/payments/moxsys/checkout - Proxy to EC2 VPS
     if (m === 'POST' && p === '/api/payments/moxsys/checkout') {
