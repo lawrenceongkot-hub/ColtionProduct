@@ -51,7 +51,7 @@ app.use('/api/payments', paymentWebhookRouter);
 app.use('/api/payments', authenticateToken, paymentRouter);
 
 // ============================================================
-// LANDING STATS - Public marketing data (fake, never real user data)
+// LANDING STATS - Public marketing data (REAL data only, privacy-masked)
 // ============================================================
 app.get('/api/landing/stats', async (_req, res) => {
   try {
@@ -60,46 +60,55 @@ app.get('/api/landing/stats', async (_req, res) => {
     const totalInvestments = await prisma.investmentOrder.aggregate({ _sum: { buyAmount: true }, where: { status: 'ACTIVE', user: { isDemo: false } } });
     const activeInvestors = await prisma.investmentOrder.count({ where: { status: 'ACTIVE', user: { isDemo: false } } });
     const activeInvestorsDisplay = settings?.landingActiveInvestorsDisplay || activeInvestors;
-    const investorCount = Math.min(activeInvestorsDisplay, 10);
 
-    // Generate fake marketing data - NEVER real user data
-    const FAKE_FIRST_NAMES = ['Rose', 'Karl', 'John', 'Maria', 'James', 'Anna', 'Mark', 'Liza', 'Paul', 'Grace', 'Ryan', 'Mia', 'Josh', 'Ella', 'Ben', 'Nina', 'Leo', 'Sara', 'Tom', 'Ivy'];
-    const FAKE_LAST_NAMES = ['Bangita', 'Gonzales', 'Cruz', 'Santos', 'Reyes', 'Garcia', 'Mendoza', 'Torres', 'Flores', 'Ramos', 'Aquino', 'Dela Cruz', 'Villanueva', 'Navarro', 'Salazar', 'Bautista', 'Ocampo', 'Padilla', 'Domingo', 'Castillo'];
+    // REAL data: Latest investors from database (privacy-masked)
+    const latestOrders = await prisma.investmentOrder.findMany({
+      where: { status: 'ACTIVE', user: { isDemo: false } },
+      orderBy: { purchaseDate: 'desc' },
+      take: 10,
+      include: { user: { select: { fullName: true, displayId: true } } },
+    });
 
-    function generateFakeInvestors(count: number): Array<{ id: string; fullName: string; displayId: string; amount: number; date: string }> {
-      const investors: Array<{ id: string; fullName: string; displayId: string; amount: number; date: string }> = [];
-      for (let i = 0; i < count; i++) {
-        const first = FAKE_FIRST_NAMES[Math.floor(Math.random() * FAKE_FIRST_NAMES.length)];
-        const last = FAKE_LAST_NAMES[Math.floor(Math.random() * FAKE_LAST_NAMES.length)];
-        const maskedFirst = first.slice(0, 4) + '****';
-        const maskedLast = last.slice(0, 4) + '***';
-        const phone = '09' + String(Math.floor(Math.random() * 900000000) + 100000000).slice(0, 9);
-        const maskedPhone = phone.slice(0, 4) + '*****' + phone.slice(-2);
-        const amount = Math.floor(Math.random() * 19000) + 1000;
-        investors.push({
-          id: 'fake-' + i + '-' + Date.now(),
-          fullName: `${maskedFirst} ${maskedLast}`,
-          displayId: maskedPhone,
-          amount,
-          date: new Date(Date.now() - i * 86400000).toISOString(),
-        });
-      }
-      return investors;
-    }
+    const latestInvestors = settings?.landingEnableLatestInvestors !== false
+      ? latestOrders.map(o => ({
+          id: o.id,
+          fullName: maskName(o.user.fullName),
+          displayId: maskDisplayId(o.user.displayId),
+          amount: o.buyAmount,
+          date: o.purchaseDate.toISOString(),
+        }))
+      : [];
 
-    const fakeLatestInvestors = generateFakeInvestors(investorCount);
-    const fakeTopInvestors = generateFakeInvestors(Math.min(investorCount, 10)).map((inv, i) => ({
-      ...inv,
-      totalInvested: inv.amount * (10 - i),
-    }));
+    const latestInvestments = settings?.landingEnableLatestInvestors !== false
+      ? latestInvestors.map(inv => ({ ...inv, plan: 'VIP' }))
+      : [];
+
+    // REAL data: Top investors from database (privacy-masked)
+    const topOrders = await prisma.investmentOrder.findMany({
+      where: { status: 'ACTIVE', user: { isDemo: false } },
+      orderBy: { buyAmount: 'desc' },
+      take: 10,
+      include: { user: { select: { fullName: true, displayId: true } } },
+    });
+
+    const topInvestors = settings?.landingEnableTopInvestors !== false
+      ? topOrders.map(o => ({
+          id: o.id,
+          fullName: maskName(o.user.fullName),
+          displayId: maskDisplayId(o.user.displayId),
+          amount: o.buyAmount,
+          totalInvested: o.buyAmount,
+          date: o.purchaseDate.toISOString(),
+        }))
+      : [];
 
     return res.json({
       totalUsers,
       totalInvestments: totalInvestments._sum.buyAmount || 0,
       activeInvestors,
-      latestInvestors: settings?.landingEnableLatestInvestors !== false ? fakeLatestInvestors : [],
-      latestInvestments: settings?.landingEnableLatestInvestors !== false ? fakeLatestInvestors.map(inv => ({ ...inv, plan: 'VIP ' + (Math.floor(Math.random() * 10) + 1) })) : [],
-      topInvestors: settings?.landingEnableTopInvestors !== false ? fakeTopInvestors : [],
+      latestInvestors,
+      latestInvestments,
+      topInvestors,
       recentRegistrations: [],
       displaySettings: {
         totalUsersDisplay: settings?.landingTotalUsersDisplay || totalUsers,
@@ -116,6 +125,23 @@ app.get('/api/landing/stats', async (_req, res) => {
     return res.status(500).json({ error: e?.message || 'Failed' });
   }
 });
+
+// Privacy masking helpers - mask real user data for public display
+function maskName(fullName: string): string {
+  if (!fullName) return 'An*** ***';
+  const parts = fullName.trim().split(/\s+/);
+  const first = parts[0] || '';
+  const last = parts.length > 1 ? parts[parts.length - 1] : '';
+  const maskedFirst = first.length > 4 ? first.slice(0, 4) + '****' : first.slice(0, 1) + '***';
+  const maskedLast = last.length > 4 ? last.slice(0, 4) + '***' : last.length > 0 ? last.slice(0, 1) + '***' : '***';
+  return `${maskedFirst} ${maskedLast}`;
+}
+
+function maskDisplayId(displayId: string): string {
+  if (!displayId) return '**********';
+  if (displayId.length <= 4) return displayId.slice(0, 2) + '****';
+  return displayId.slice(0, 4) + '*****' + displayId.slice(-2);
+}
 
 // Protected routes
 app.use('/api/wallet', authenticateToken, walletRouter);

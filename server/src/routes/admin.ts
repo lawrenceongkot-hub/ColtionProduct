@@ -48,14 +48,16 @@ adminRouter.get('/dashboard', async (_req: AuthRequest, res: Response) => {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    // Online users = users with lastActivity within the last 5 minutes (REAL data only)
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
     // CRITICAL: All production analytics EXCLUDE demo accounts (users.isDemo = true)
-    const [users, deposits, withdrawals, orders, transactions, activeSessions, newUsersToday, verifiedUsers, pendingVerification, suspendedBanned, welcomeBonuses, referralCommissions, walletBalance, activeVIP, investedAmount, dailyProfit, completingToday, runningPlans, pendingDeposits, pendingWithdrawals, pendingKYC, failedTx, supportTickets] = await Promise.all([
+    const [users, deposits, withdrawals, orders, transactions, onlineUsers, newUsersToday, verifiedUsers, pendingVerification, suspendedBanned, welcomeBonuses, referralCommissions, walletBalance, activeVIP, investedAmount, dailyProfit, completingToday, runningPlans, pendingDeposits, pendingWithdrawals, pendingKYC, failedTx, supportTickets] = await Promise.all([
       prisma.user.count({ where: { isDemo: false } }),
       prisma.deposit.aggregate({ _sum: { amount: true }, where: { status: 'SUCCESS', user: { isDemo: false } } }),
       prisma.withdrawal.aggregate({ _sum: { netAmount: true }, where: { status: 'SUCCESS', user: { isDemo: false } } }),
       prisma.investmentOrder.count({ where: { status: 'ACTIVE', user: { isDemo: false } } }),
       prisma.transaction.count({ where: { user: { isDemo: false } } }),
-      prisma.userSession.count({ where: { expiresAt: { gte: new Date() }, user: { isDemo: false } } }),
+      prisma.user.count({ where: { isDemo: false, lastActivity: { gte: fiveMinutesAgo } } }),
       prisma.user.count({ where: { createdAt: { gte: today }, isDemo: false } }),
       prisma.user.count({ where: { verificationStatus: 'APPROVED', isDemo: false } }),
       prisma.user.count({ where: { verificationStatus: 'PENDING', isDemo: false } }),
@@ -75,13 +77,21 @@ adminRouter.get('/dashboard', async (_req: AuthRequest, res: Response) => {
       prisma.notification.count({ where: { read: false, user: { isDemo: false } } }),
     ]);
 
+    // Server-side validation: onlineUsers must NEVER exceed totalUsers
+    if (onlineUsers > users) {
+      console.error(`[DASHBOARD ERROR] onlineUsers (${onlineUsers}) exceeds totalUsers (${users}) - calculation is incorrect!`);
+      if (process.env.NODE_ENV !== 'production') {
+        throw new Error(`onlineUsers (${onlineUsers}) exceeds totalUsers (${users})`);
+      }
+    }
+
     const totalWalletBalance = (walletBalance._sum.main || 0) + (walletBalance._sum.semWallet || 0) + (walletBalance._sum.ongoing || 0);
     const totalDeposits = deposits._sum.amount || 0;
     const totalWithdrawals = withdrawals._sum.netAmount || 0;
 
     res.json({
       totalUsers: users,
-      onlineUsers: activeSessions,
+      onlineUsers: Math.min(onlineUsers, users),
       newUsersToday,
       verifiedUsers,
       pendingVerification,

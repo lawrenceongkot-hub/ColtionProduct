@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import prisma from '../db';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -9,7 +10,7 @@ export interface AuthRequest extends Request {
   };
 }
 
-export function authenticateToken(req: AuthRequest, res: Response, next: NextFunction): void {
+export async function authenticateToken(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -21,6 +22,17 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret') as any;
     req.user = { id: decoded.id, email: decoded.email, role: decoded.role };
+
+    // Track lastActivity for real online user counting (non-blocking, fire-and-forget)
+    if (decoded.id && decoded.role !== 'admin') {
+      prisma.user.update({
+        where: { id: decoded.id },
+        data: { lastActivity: new Date() },
+      }).catch(() => {
+        // Silently ignore - don't block the request if update fails
+      });
+    }
+
     next();
   } catch {
     res.status(403).json({ error: 'Invalid or expired token' });

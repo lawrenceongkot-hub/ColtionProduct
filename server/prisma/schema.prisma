@@ -65,6 +65,7 @@ model User {
   status               String   @default("active")
   verifiedAt           DateTime?
   verificationRequestedAt DateTime?
+  lastActivity         DateTime?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
