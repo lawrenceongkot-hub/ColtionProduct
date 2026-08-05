@@ -16,7 +16,7 @@ import { agentRouter } from './routes/agent';
 import { ewalletRouter } from './routes/ewallet';
 import { dashboardRouter } from './routes/dashboard';
 import { adminAgentsRouter } from './routes/adminAgents';
-import { paymentRouter } from './routes/payment';
+import { paymentRouter, paymentWebhookRouter } from './routes/payment';
 import { authenticateToken } from './middleware/auth';
 import prisma from './db';
 
@@ -44,8 +44,11 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth', authRouter);
 app.use('/api/settings', settingsRouter);
 
-// Payment routes (webhook is public, checkout/status require auth)
-app.use('/api/payments', paymentRouter);
+// Payment webhook - PUBLIC (Moxsys calls this directly)
+app.use('/api/payments', paymentWebhookRouter);
+
+// Payment routes - AUTHENTICATED (checkout, status)
+app.use('/api/payments', authenticateToken, paymentRouter);
 
 // ============================================================
 // LANDING STATS - Public marketing data (fake, never real user data)

@@ -1,8 +1,9 @@
-import { Router, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import prisma from '../db';
 import { AuthRequest } from '../middleware/auth';
 
 export const paymentRouter = Router();
+export const paymentWebhookRouter = Router();
 
 // ============================================================
 // MOXSYS PAYMENT GATEWAY
@@ -167,7 +168,9 @@ paymentRouter.get('/moxsys/status/:ref', async (req: AuthRequest, res: Response)
 });
 
 // POST /api/payments/moxsys/webhook - Moxsys callback for payment status updates
-paymentRouter.post('/moxsys/webhook', async (req: AuthRequest, res: Response) => {
+// This is PUBLIC (no auth) because Moxsys calls this URL directly.
+// Idempotency: only process if deposit.status === 'PENDING'
+paymentWebhookRouter.post('/webhook', async (req: Request, res: Response) => {
   try {
     const event = req.body;
     const status = (event?.status || '').toLowerCase();
