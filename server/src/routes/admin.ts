@@ -136,6 +136,40 @@ adminRouter.get('/users', async (_req: AuthRequest, res: Response) => {
   }
 });
 
+// Wipe all users - MUST be defined BEFORE /users/:id to avoid route conflict
+// (Express matches /users/:id first, treating "wipe-all" as a user ID)
+adminRouter.delete('/users/wipe-all', async (req: AuthRequest, res: Response) => {
+  try {
+    const before = { users: await prisma.user.count(), transactions: await prisma.transaction.count(), deposits: await prisma.deposit.count(), withdrawals: await prisma.withdrawal.count(), wallets: await prisma.wallet.count() };
+    await prisma.$transaction(async (tx) => {
+      await tx.changePasswordToken.deleteMany({});
+      await tx.notification.deleteMany({});
+      await tx.walletLedger.deleteMany({});
+      await tx.auditLog.deleteMany({});
+      await tx.welcomeBonusClaim.deleteMany({});
+      await tx.registrationFingerprint.deleteMany({});
+      await tx.verificationRequest.deleteMany({});
+      await tx.agentCommission.deleteMany({});
+      await tx.agentReferral.deleteMany({});
+      await tx.agentProfile.deleteMany({});
+      await tx.referral.deleteMany({});
+      await tx.eWallet.deleteMany({});
+      await tx.investmentOrder.deleteMany({});
+      await tx.transaction.deleteMany({});
+      await tx.withdrawal.deleteMany({});
+      await tx.deposit.deleteMany({});
+      await tx.userSession.deleteMany({});
+      await tx.wallet.deleteMany({});
+      await tx.user.deleteMany({});
+    });
+    const after = { users: await prisma.user.count(), transactions: await prisma.transaction.count(), deposits: await prisma.deposit.count(), withdrawals: await prisma.withdrawal.count(), wallets: await prisma.wallet.count() };
+    res.json({ success: true, message: 'All registered accounts and data wiped. Statistics reset.', before, after });
+  } catch (e: any) {
+    console.error('Wipe all users error:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'Failed to wipe users' });
+  }
+});
+
 adminRouter.delete('/users/:id', async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
@@ -176,9 +210,12 @@ adminRouter.put('/deposits/:id/approve', async (req: AuthRequest, res: Response)
 
       const wallet = await tx.wallet.findUnique({ where: { userId: deposit.userId } });
       if (wallet) {
+        // BUSINESS LOGIC: Deposits MUST credit SemWallet (NOT Main Wallet)
+        // SemWallet = deposits, welcome bonuses, promotional bonuses, VIP purchases
+        // Main Wallet = withdrawals, matured profits, referral commissions, admin adjustments
         await tx.wallet.update({
           where: { userId: deposit.userId },
-          data: { main: { increment: deposit.amount } },
+          data: { semWallet: { increment: deposit.amount } },
         });
       }
 
@@ -755,39 +792,6 @@ adminRouter.put('/users/:id/password', async (req: AuthRequest, res: Response) =
     res.json(user);
   } catch {
     res.status(500).json({ error: 'Failed' });
-  }
-});
-
-// Wipe all users
-adminRouter.delete('/users/wipe-all', async (req: AuthRequest, res: Response) => {
-  try {
-    const before = { users: await prisma.user.count(), transactions: await prisma.transaction.count(), deposits: await prisma.deposit.count(), withdrawals: await prisma.withdrawal.count(), wallets: await prisma.wallet.count() };
-    await prisma.$transaction(async (tx) => {
-      await tx.changePasswordToken.deleteMany({});
-      await tx.notification.deleteMany({});
-      await tx.walletLedger.deleteMany({});
-      await tx.auditLog.deleteMany({});
-      await tx.welcomeBonusClaim.deleteMany({});
-      await tx.registrationFingerprint.deleteMany({});
-      await tx.verificationRequest.deleteMany({});
-      await tx.agentCommission.deleteMany({});
-      await tx.agentReferral.deleteMany({});
-      await tx.agentProfile.deleteMany({});
-      await tx.referral.deleteMany({});
-      await tx.eWallet.deleteMany({});
-      await tx.investmentOrder.deleteMany({});
-      await tx.transaction.deleteMany({});
-      await tx.withdrawal.deleteMany({});
-      await tx.deposit.deleteMany({});
-      await tx.userSession.deleteMany({});
-      await tx.wallet.deleteMany({});
-      await tx.user.deleteMany({});
-    });
-    const after = { users: await prisma.user.count(), transactions: await prisma.transaction.count(), deposits: await prisma.deposit.count(), withdrawals: await prisma.withdrawal.count(), wallets: await prisma.wallet.count() };
-    res.json({ success: true, message: 'All registered accounts and data wiped. Statistics reset.', before, after });
-  } catch (e: any) {
-    console.error('Wipe all users error:', e?.message || e);
-    res.status(500).json({ error: e?.message || 'Failed to wipe users' });
   }
 });
 
