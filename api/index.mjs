@@ -295,17 +295,34 @@ app.use('/api', async (req, res) => {
     // ALL PAYMENT ROUTES ARE PROXIED TO THE EC2 VPS BACKEND (15.135.198.121)
     // This ensures Moxsys always receives requests from the whitelisted VPS IP.
     // The Vercel serverless function NEVER calls Moxsys directly.
+    // JWT tokens are re-signed with EC2's secret so the EC2 backend can verify them.
     if (p.startsWith('/api/payments/')) {
       try {
         const ec2BaseUrl = process.env.EC2_BACKEND_URL || 'http://15.135.198.121';
         const targetUrl = `${ec2BaseUrl}${p}`;
         
-        // Preserve Authorization header for authenticated routes
         const headers = {
           'Content-Type': 'application/json',
         };
+        
+        // Re-sign the JWT with EC2's secret so EC2 can verify it
         const authHeader = req.headers['authorization'];
-        if (authHeader) headers['Authorization'] = authHeader;
+        if (authHeader) {
+          try {
+            const vercelToken = authHeader.split(' ')[1];
+            const decoded = jwt.verify(vercelToken, process.env.JWT_SECRET || 'fallback');
+            // Re-sign with EC2's JWT secret (defaults to 'fallback' to match EC2 .env)
+            const ec2Token = jwt.sign(
+              { id: decoded.id, email: decoded.email, role: decoded.role },
+              process.env.EC2_JWT_SECRET || 'fallback',
+              { expiresIn: '15m' }
+            );
+            headers['Authorization'] = 'Bearer ' + ec2Token;
+          } catch (e) {
+            // Token verification failed - forward original (EC2 will reject it)
+            headers['Authorization'] = authHeader;
+          }
+        }
         
         console.log('[Vercel Proxy] Forwarding', m, p, 'to EC2 backend');
         
