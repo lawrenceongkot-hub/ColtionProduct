@@ -51,7 +51,7 @@ Before running the setup, edit the `.env` template in `setup-ec2.sh` to set:
 1. **Strong PostgreSQL password** - replace `CHANGE_ME_STRONG_PASSWORD`
 2. **Strong JWT secrets** - replace both `CHANGE_ME_TO_A_RANDOM_64_CHAR_STRING` values
 3. **Google OAuth Client Secret** - replace `CHANGE_ME`
-4. **Moxsys credentials** - update `MOXSYS_API_KEY` and `MOXSYS_MODE` to your live keys
+4. **Moxsys credentials** - set `MOXSYS_API_KEY` (production MPAY key) and `MOXSYS_MODE=live` in `/var/www/coltion/server/.env`. Never hardcode secrets in scripts; the deploy scripts read `MOXSYS_API_KEY` from the environment.
 
 Generate strong random secrets:
 ```bash

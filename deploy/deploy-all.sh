@@ -92,7 +92,8 @@ echo "[6/10] Configuring environment..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Backend .env
-cat > /var/www/coltion/server/.env << 'EOF'
+# NOTE: Unquoted EOF so ${MOXSYS_API_KEY} expands from the environment.
+cat > /var/www/coltion/server/.env << EOF
 # Database (Neon PostgreSQL)
 DATABASE_URL="postgresql://neondb_owner:npg_H5LdBgc6kTzw@ep-lively-truth-ax8o6uvw.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
@@ -105,10 +106,12 @@ PORT=3001
 NODE_ENV=production
 FRONTEND_URL="http://15.135.198.121"
 
-# Moxsys
-MOXSYS_API_KEY="Ht23THehMXQmOa9QL91mkAKhmISIaTTATlzaVK43GghH4oW8IU"
-MOXSYS_MERCHANT_KEY="Letsgo"
-MOXSYS_MODE="sandbox"
+# Moxsys Payment Gateway - PRODUCTION
+# SECURITY: Set these via environment variables BEFORE running this script, or edit .env manually after.
+# Do NOT hardcode secrets in this script.
+MOXSYS_API_KEY="${MOXSYS_API_KEY:?Set MOXSYS_API_KEY env var before running this script (production Moxsys/MPAY API key)}"
+MOXSYS_MERCHANT_NAME="${MOXSYS_MERCHANT_NAME:-MPAY}"
+MOXSYS_MODE="live"
 PAYMENT_GATEWAY_MODE="live"
 
 # Google OAuth

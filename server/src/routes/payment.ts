@@ -22,8 +22,27 @@ paymentRouter.post('/moxsys/checkout', async (req: AuthRequest, res: Response) =
     if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
 
     const parsedAmount = Math.round(parseFloat(amount)); // Moxsys expects amount in pesos (not centavos)
-    const moxsysApiKey = process.env.MOXSYS_API_KEY || 'Ht23THehMXQmOa9QL91mkAKhmISIaTTATlzaVK43GghH4oW8IU';
-    const moxsysMode = process.env.MOXSYS_MODE || 'sandbox';
+
+    // SECURITY: Never hardcode credentials. Require production env vars.
+    const moxsysApiKey = process.env.MOXSYS_API_KEY;
+    const moxsysMode = process.env.MOXSYS_MODE || 'live'; // default to live (production)
+    const merchantName = process.env.MOXSYS_MERCHANT_NAME || 'MPAY';
+
+    if (!moxsysApiKey) {
+      console.error('[Moxsys] Missing MOXSYS_API_KEY in server environment.');
+      return res.status(500).json({ error: 'Payment gateway not configured (missing API key).' });
+    }
+    if (moxsysMode !== 'live') {
+      console.warn(`[Moxsys] MOXSYS_MODE is "${moxsysMode}". Production expects "live".`);
+    }
+
+    // Diagnostic log: show which merchant + mode + key prefix is being used
+    console.log('[Moxsys] Config:', {
+      merchant: merchantName,
+      mode: moxsysMode,
+      apiKeyPrefix: moxsysApiKey.substring(0, 8) + '...',
+      apiKeyLength: moxsysApiKey.length,
+    });
 
     const ref = 'DEP-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -114,6 +133,23 @@ paymentRouter.post('/moxsys/checkout', async (req: AuthRequest, res: Response) =
     const invoiceId = invoice.id || '';
     const qrCode = invoice.qr_code || invoice.qrString || invoice.qr || null;
     const deeplink = invoice.deeplink || invoice.deep_link || null;
+
+    // SANDBOX DETECTION: Block sandbox checkout URLs from reaching the user
+    if (invoiceUrl && /sandbox|test|demo|simulate/i.test(invoiceUrl)) {
+      console.error('[Moxsys] ⚠️  SANDBOX URL DETECTED:', invoiceUrl);
+      console.error('[Moxsys] The provider returned a sandbox checkout despite live mode. Possible causes:');
+      console.error('[Moxsys]   1. The API key is a sandbox/test key, not a production key');
+      console.error('[Moxsys]   2. The merchant account is not activated for production');
+      console.error('[Moxsys]   3. The wrong endpoint is being used');
+      return res.status(500).json({
+        error: 'Payment gateway returned a sandbox checkout URL. Verify that MOXSYS_API_KEY is a production key and the merchant account is activated for live mode.',
+        provider: 'Moxsys',
+        sandboxUrl: invoiceUrl,
+        requestUrl: moxsysUrl,
+        merchant: merchantName,
+        mode: moxsysMode,
+      });
+    }
 
     console.log('[Moxsys] Invoice created:', JSON.stringify({ id: invoiceId, url: invoiceUrl, hasQR: !!qrCode, hasDeeplink: !!deeplink }));
 

@@ -104,7 +104,10 @@ npx prisma generate
 echo "[9/12] Configuring environment variables..."
 
 # Create .env for backend (uses existing Neon database)
-cat > /var/www/coltion/server/.env << 'EOF'
+# NOTE: Unquoted EOF so ${MOXSYS_API_KEY} expands from the environment.
+# SECURITY: Set MOXSYS_API_KEY via environment variable BEFORE running this script,
+# or edit /var/www/coltion/server/.env manually after setup. Do NOT hardcode secrets here.
+cat > /var/www/coltion/server/.env << EOF
 # ============================================
 # Coltion Production Environment Variables
 # ============================================
@@ -122,10 +125,12 @@ PORT=3001
 NODE_ENV=production
 FRONTEND_URL="https://coltionproduct.com"
 
-# Moxsys Payment Gateway
-MOXSYS_API_KEY="Ht23THehMXQmOa9QL91mkAKhmISIaTTATlzaVK43GghH4oW8IU"
-MOXSYS_MERCHANT_KEY="Letsgo"
-MOXSYS_MODE="sandbox"
+# Moxsys Payment Gateway - PRODUCTION (MPAY merchant)
+# SECURITY: Set MOXSYS_API_KEY via environment variable BEFORE running this script,
+# or edit /var/www/coltion/server/.env manually after setup. Do NOT hardcode secrets here.
+MOXSYS_API_KEY="${MOXSYS_API_KEY:?Set MOXSYS_API_KEY env var before running this script (production Moxsys/MPAY API key)}"
+MOXSYS_MERCHANT_NAME="${MOXSYS_MERCHANT_NAME:-MPAY}"
+MOXSYS_MODE="live"
 PAYMENT_GATEWAY_MODE="live"
 
 # Google OAuth

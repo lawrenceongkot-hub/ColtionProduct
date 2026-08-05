@@ -95,16 +95,17 @@ echo "This is the STATIC IP of your EC2 VPS."
 echo "All Moxsys API calls from your platform will now come from this IP."
 echo ""
 
-# Try to use Moxsys API to add IP if API key is available
+# Try to use Moxsys API to add IP if a real (non-placeholder) API key is available
 MOXSYS_API_KEY=$(grep MOXSYS_API_KEY "$ENV_FILE" | cut -d'=' -f2 | tr -d '"')
-if [ -n "$MOXSYS_API_KEY" ] && [ "$MOXSYS_API_KEY" != "Ht23THehMXQmOa9QL91mkAKhmISIaTTATlzaVK43GghH4oW8IU" ]; then
+if [ -n "$MOXSYS_API_KEY" ] && [ "$MOXSYS_API_KEY" != "REPLACE_WITH_PRODUCTION_API_KEY" ] && [ "$MOXSYS_API_KEY" != "YOUR_PRODUCTION_MOXSYS_API_KEY" ]; then
     echo "Attempting to add IP via Moxsys API..."
     curl -s -X POST "https://platform.moxsys.io/api/v1/ip-whitelist" \
         -H "Authorization: Bearer $MOXSYS_API_KEY" \
         -H "Content-Type: application/json" \
         -d "{\"ip\":\"$SERVER_IP\"}" || echo "⚠️  Could not add IP via API. Please add manually."
 else
-    echo "ℹ️  Using default Moxsys API key. Manual whitelist is required."
+    echo "ℹ️  No production Moxsys API key detected in .env. Manual whitelist is required."
+    echo "   Set MOXSYS_API_KEY in /var/www/coltion/server/.env first, then re-run this script."
 fi
 
 # ============================================================
