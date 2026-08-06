@@ -128,11 +128,22 @@ adminRouter.get('/users', async (_req: AuthRequest, res: Response) => {
         id: true, displayId: true, fullName: true, email: true, phone: true,
         invitationCode: true, referralCount: true, createdAt: true,
         invitedBy: true, isDemo: true, status: true, verificationStatus: true,
-        wallet: { select: { main: true } },
+        lastActivity: true,
+        wallet: { select: { main: true, semWallet: true, ongoing: true } },
       },
     });
 
-    // Resolve referrer display IDs for all users who have an invitedBy code
+    // Fetch registration fingerprints for device + IP info
+    const userIds = users.map(u => u.id);
+    const fingerprints = userIds.length > 0
+      ? await prisma.registrationFingerprint.findMany({
+          where: { userId: { in: userIds } },
+          select: { userId: true, ipAddress: true, deviceFingerprint: true },
+        })
+      : [];
+    const fingerprintMap = new Map(fingerprints.map(f => [f.userId, f]));
+
+    // Resolve referrer display IDs and names for all users who have an invitedBy code
     const invitedByCodes = users.map(u => u.invitedBy).filter(Boolean) as string[];
     const referrers = invitedByCodes.length > 0
       ? await prisma.user.findMany({
@@ -142,14 +153,25 @@ adminRouter.get('/users', async (_req: AuthRequest, res: Response) => {
       : [];
     const referrerMap = new Map(referrers.map(r => [r.invitationCode, r]));
 
-    // Enrich users with referrer info
+    // Enrich users with all profile data from production database
     const enriched = users.map(u => {
       const referrer = u.invitedBy ? referrerMap.get(u.invitedBy) : null;
+      const fp = fingerprintMap.get(u.id);
       return {
         ...u,
+        // Last login from lastActivity (updated by auth middleware on every request)
+        lastLogin: u.lastActivity || null,
+        // Last login IP from registration fingerprint (production data)
+        lastLoginIp: fp?.ipAddress || '',
+        // Device from registration fingerprint (production data)
+        device: fp?.deviceFingerprint || '',
+        // Referral code is the user's own invitation code
+        referralCode: u.invitationCode || '',
+        // Referred by - actual inviter from database relationship
         referredBy: u.invitedBy || '',
         referrerDisplayId: referrer?.displayId || '',
         referrerFullName: referrer?.fullName || '',
+        referrerInvitationCode: referrer?.invitationCode || '',
       };
     });
 

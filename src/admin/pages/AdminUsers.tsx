@@ -19,8 +19,11 @@ interface UserData {
   lastLoginIp: string;
   device: string;
   referralCode: string;
+  invitationCode: string;
   referredBy: string;
   referrerDisplayId: string;
+  referrerFullName: string;
+  referrerInvitationCode: string;
   createdAt: number;
   isDemo?: boolean;
   wallet: { main: number; semWallet: number; ongoing: number };
@@ -582,8 +585,10 @@ export const AdminUsers: React.FC = React.memo(() => {
                     { label: 'Last Login', value: new Date(selectedUser.lastLogin).toLocaleString() },
                     { label: 'Last Login IP', value: selectedUser.lastLoginIp },
                     { label: 'Device', value: selectedUser.device },
-                    { label: 'Referral Code', value: selectedUser.referralCode },
-                    { label: 'Referred By', value: selectedUser.referrerDisplayId || selectedUser.referredBy || 'Direct Registration' },
+                    { label: 'Referral Code', value: selectedUser.referralCode || selectedUser.invitationCode || '—' },
+                    { label: 'Referred By', value: selectedUser.referrerFullName
+                      ? `${selectedUser.referrerFullName} (${selectedUser.referrerDisplayId})`
+                      : selectedUser.referrerDisplayId || selectedUser.referredBy || 'Direct Registration' },
                     { label: 'Account Status',
                       value: <span style={{
                         padding: '2px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
