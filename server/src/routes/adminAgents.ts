@@ -60,7 +60,16 @@ adminAgentsRouter.get('/', async (_req: AuthRequest, res: Response) => {
       ORDER BY u."createdAt" DESC
     `;
 
-    res.json(agents || []);
+    // Convert BigInt values to numbers (PostgreSQL COUNT/SUM return BigInt)
+    const serialized = (agents || []).map((a: any) => {
+      const result: any = {};
+      for (const [key, value] of Object.entries(a)) {
+        result[key] = typeof value === 'bigint' ? Number(value) : value;
+      }
+      return result;
+    });
+
+    res.json(serialized);
   } catch (error) {
     console.error('Get agents error:', error);
     res.status(500).json({ error: 'Failed to get agents' });
