@@ -50,7 +50,7 @@ model User {
   email                String   @unique
   password             String
   fullName             String
-  phone                String   @default("")
+  phone                String   @unique @default("")
   isDemo               Boolean  @default(false)
   picture              String?
   googleId             String?
@@ -205,7 +205,7 @@ model EWallet {
   id                 String @id @default(cuid())
   userId             String
   provider           String
-  walletNumber       String
+  walletNumber       String @unique
   withdrawalPassword String
   user               User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 

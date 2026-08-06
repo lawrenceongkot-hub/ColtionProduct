@@ -37,17 +37,18 @@ authRouter.post('/register', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields: fullName, email, phone, password' });
     }
 
-    // Check existing
+    // Check existing - Email uniqueness (backend + DB unique constraint)
     const existingEmail = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
     if (existingEmail) return res.status(400).json({ error: 'Email is already registered.' });
 
+    // Check existing - Mobile uniqueness (backend + DB unique constraint)
     const existingPhone = await prisma.user.findFirst({ where: { phone } });
     if (existingPhone) return res.status(400).json({ error: 'Mobile number is already registered.' });
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Extract IP address for anti-abuse check
+    // Extract IP address for tracking (NOT for blocking)
     const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || 'unknown';
 
     // Generate unique IDs
@@ -102,7 +103,7 @@ authRouter.post('/register', async (req: AuthRequest, res: Response) => {
         data: { userId: user.id, main: 0, semWallet: 0, ongoing: 0 },
       });
 
-      // Record registration fingerprint for anti-abuse tracking
+      // Record registration fingerprint for tracking (NOT for blocking)
       await tx.registrationFingerprint.create({
         data: {
           userId: user.id,
@@ -112,47 +113,40 @@ authRouter.post('/register', async (req: AuthRequest, res: Response) => {
         },
       });
 
-      // Anti-abuse check: Only block bonus if BOTH IP AND device fingerprint match
-      const existingClaim = await tx.welcomeBonusClaim.findFirst({
-        where: {
-          ipAddress,
-          deviceFingerprint: deviceFingerprint || 'unknown',
+      // NEW BUSINESS RULE: Every successful registration receives Welcome Bonus.
+      // Same IP, Same Device, Same Browser, Same Network are ALL ALLOWED.
+      // The ONLY restrictions are: unique Email, unique Mobile, unique E-wallet.
+      // Welcome Bonus is ALWAYS granted - no IP/device blocking.
+
+      // Credit SemWallet += 100 (Welcome Bonus)
+      await tx.wallet.update({
+        where: { userId: user.id },
+        data: { semWallet: { increment: 100 } },
+      });
+
+      // Create WELCOME_BONUS transaction
+      await tx.transaction.create({
+        data: {
+          userId: user.id,
+          type: 'WELCOME_BONUS',
+          amount: 100,
+          method: 'Welcome Bonus',
+          reference: 'WELCOME-' + user.id.slice(-8) + '-' + Date.now(),
+          status: 'SUCCESS',
+          completedAt: new Date(),
         },
       });
 
-      const bonusEligible = !existingClaim;
-
-      if (bonusEligible) {
-        // Credit SemWallet += 100 (Welcome Bonus)
-        await tx.wallet.update({
-          where: { userId: user.id },
-          data: { semWallet: { increment: 100 } },
-        });
-
-        // Create WELCOME_BONUS transaction
-        await tx.transaction.create({
-          data: {
-            userId: user.id,
-            type: 'WELCOME_BONUS',
-            amount: 100,
-            method: 'Welcome Bonus',
-            reference: 'WELCOME-' + user.id.slice(-8) + '-' + Date.now(),
-            status: 'SUCCESS',
-            completedAt: new Date(),
-          },
-        });
-
-        // Record welcome bonus claim for anti-abuse tracking
-        await tx.welcomeBonusClaim.create({
-          data: {
-            userId: user.id,
-            amount: 100,
-            ipAddress,
-            deviceFingerprint: deviceFingerprint || 'unknown',
-            status: 'CLAIMED',
-          },
-        });
-      }
+      // Record welcome bonus claim for tracking (NOT for blocking)
+      await tx.welcomeBonusClaim.create({
+        data: {
+          userId: user.id,
+          amount: 100,
+          ipAddress,
+          deviceFingerprint: deviceFingerprint || 'unknown',
+          status: 'CLAIMED',
+        },
+      });
 
       // Record referral for user invitation
       if (invitedBy) {
@@ -440,7 +434,7 @@ authRouter.post('/google', async (req: AuthRequest, res: Response) => {
         if (agent) referrerAgentId = agent.id;
       }
 
-      // Extract IP address for anti-abuse check
+      // Extract IP address for tracking (NOT for blocking)
       const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || 'unknown';
 
       // Execute all database operations in a single transaction for atomicity
@@ -469,7 +463,7 @@ authRouter.post('/google', async (req: AuthRequest, res: Response) => {
           data: { userId: newUser.id, main: 0, semWallet: 0, ongoing: 0 },
         });
 
-        // Record registration fingerprint for anti-abuse tracking
+        // Record registration fingerprint for tracking (NOT for blocking)
         await tx.registrationFingerprint.create({
           data: {
             userId: newUser.id,
@@ -479,47 +473,40 @@ authRouter.post('/google', async (req: AuthRequest, res: Response) => {
           },
         });
 
-        // Anti-abuse check: Only block bonus if BOTH IP AND device fingerprint match
-        const existingClaim = await tx.welcomeBonusClaim.findFirst({
-          where: {
-            ipAddress,
-            deviceFingerprint: deviceFingerprint || 'unknown',
+        // NEW BUSINESS RULE: Every successful registration receives Welcome Bonus.
+        // Same IP, Same Device, Same Browser, Same Network are ALL ALLOWED.
+        // The ONLY restrictions are: unique Email, unique Mobile, unique E-wallet.
+        // Welcome Bonus is ALWAYS granted - no IP/device blocking.
+
+        // Credit SemWallet += 100 (Welcome Bonus)
+        await tx.wallet.update({
+          where: { userId: newUser.id },
+          data: { semWallet: { increment: 100 } },
+        });
+
+        // Create WELCOME_BONUS transaction
+        await tx.transaction.create({
+          data: {
+            userId: newUser.id,
+            type: 'WELCOME_BONUS',
+            amount: 100,
+            method: 'Welcome Bonus',
+            reference: 'WELCOME-' + newUser.id.slice(-8) + '-' + Date.now(),
+            status: 'SUCCESS',
+            completedAt: new Date(),
           },
         });
 
-        const bonusEligible = !existingClaim;
-
-        if (bonusEligible) {
-          // Credit SemWallet += 100 (Welcome Bonus)
-          await tx.wallet.update({
-            where: { userId: newUser.id },
-            data: { semWallet: { increment: 100 } },
-          });
-
-          // Create WELCOME_BONUS transaction
-          await tx.transaction.create({
-            data: {
-              userId: newUser.id,
-              type: 'WELCOME_BONUS',
-              amount: 100,
-              method: 'Welcome Bonus',
-              reference: 'WELCOME-' + newUser.id.slice(-8) + '-' + Date.now(),
-              status: 'SUCCESS',
-              completedAt: new Date(),
-            },
-          });
-
-          // Record welcome bonus claim for anti-abuse tracking
-          await tx.welcomeBonusClaim.create({
-            data: {
-              userId: newUser.id,
-              amount: 100,
-              ipAddress,
-              deviceFingerprint: deviceFingerprint || 'unknown',
-              status: 'CLAIMED',
-            },
-          });
-        }
+        // Record welcome bonus claim for tracking (NOT for blocking)
+        await tx.welcomeBonusClaim.create({
+          data: {
+            userId: newUser.id,
+            amount: 100,
+            ipAddress,
+            deviceFingerprint: deviceFingerprint || 'unknown',
+            status: 'CLAIMED',
+          },
+        });
 
         // Record referral
         if (invitedBy) {

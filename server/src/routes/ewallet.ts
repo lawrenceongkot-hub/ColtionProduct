@@ -24,9 +24,10 @@ ewalletRouter.post('/', async (req: AuthRequest, res: Response) => {
     const { provider, walletNumber, withdrawalPassword } = req.body;
     if (!provider || !walletNumber) return res.status(400).json({ error: 'Required' });
 
-    // Check if wallet number already exists for this user
-    const existing = await prisma.eWallet.findFirst({ where: { walletNumber, userId: req.user!.id } });
-    if (existing) return res.status(400).json({ error: 'Wallet number already registered' });
+    // NEW BUSINESS RULE: E-wallet Account must be globally unique.
+    // Check if wallet number already exists for ANY user (not just this user)
+    const existing = await prisma.eWallet.findFirst({ where: { walletNumber } });
+    if (existing) return res.status(400).json({ error: 'E-wallet account is already registered.' });
 
     // withdrawalPassword is only required for the FIRST wallet
     // For additional wallets, reuse the existing password hash from the first wallet
