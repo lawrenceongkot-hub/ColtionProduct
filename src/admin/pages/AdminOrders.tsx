@@ -32,7 +32,6 @@ export const AdminOrders: React.FC = React.memo(() => {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-  useEffect(() => { const i = setInterval(fetchData, 10000); return () => clearInterval(i); }, [fetchData]);
   useEffect(() => {
     const h = () => fetchData();
     window.addEventListener('dashboard:update', h);
@@ -70,20 +69,30 @@ export const AdminOrders: React.FC = React.memo(() => {
 
   const openDetails = async (order: OrderRecord) => {
     setSelectedOrder(order);
-    setWalletInfo(await orderManagementService.getWalletInfo(order.userId));
-    setProfitHistory(await orderManagementService.getProfitHistory(order.id));
     setModalSuccess(''); setModalError(''); setCancelReason('');
+    // Parallelize independent API calls to reduce total response time
+    const [wallet, history] = await Promise.all([
+      orderManagementService.getWalletInfo(order.userId),
+      orderManagementService.getProfitHistory(order.id),
+    ]);
+    setWalletInfo(wallet);
+    setProfitHistory(history);
   };
 
   const refreshAfterAction = async () => {
-    await fetchData();
+    const data = await orderManagementService.getOrders();
+    setOrders(data);
     if (selectedOrder) {
-      const all = await orderManagementService.getOrders();
-      const updated = all.find(o => o.id === selectedOrder.id);
+      const updated = data.find(o => o.id === selectedOrder.id);
       if (updated) {
         setSelectedOrder(updated);
-        setProfitHistory(await orderManagementService.getProfitHistory(updated.id));
-        setWalletInfo(await orderManagementService.getWalletInfo(updated.userId));
+        // Parallelize independent API calls
+        const [history, wallet] = await Promise.all([
+          orderManagementService.getProfitHistory(updated.id),
+          orderManagementService.getWalletInfo(updated.userId),
+        ]);
+        setProfitHistory(history);
+        setWalletInfo(wallet);
       }
     }
   };

@@ -55,7 +55,7 @@ export const orderManagementService = {
 
   async getProfitHistory(orderId: string): Promise<any[]> {
     try {
-      const data = await adminApi.getTransactions();
+      const data = await adminApi.getOrderProfitHistory(orderId);
       return Array.isArray(data) ? data : [];
     } catch {
       return [];

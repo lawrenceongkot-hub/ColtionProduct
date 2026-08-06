@@ -513,6 +513,44 @@ adminRouter.get('/orders', async (_req: AuthRequest, res: Response) => {
   }
 });
 
+// Get profit history for a specific order (REAL DAILY_PROFIT transactions only)
+// DAILY_PROFIT transactions are created with reference pattern: PROFIT-{orderId.slice(-8)}-{timestamp}
+adminRouter.get('/orders/:id/profit-history', async (req: AuthRequest, res: Response) => {
+  try {
+    const orderId = req.params.id as string;
+    const order = await prisma.investmentOrder.findUnique({ where: { id: orderId } });
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    // Match DAILY_PROFIT transactions for this specific order via reference pattern
+    const profitPrefix = 'PROFIT-' + orderId.slice(-8) + '-';
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        userId: order.userId,
+        type: 'DAILY_PROFIT',
+        status: 'SUCCESS',
+        reference: { startsWith: profitPrefix },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Map to the exact fields the frontend Profit History table expects
+    const profitHistory = transactions.map(t => ({
+      id: t.id,
+      date: t.createdAt,
+      amount: t.amount,
+      walletCredited: 'Ongoing Wallet',
+      status: t.status,
+      investmentDay: t.createdAt,
+      createdAt: t.createdAt,
+    }));
+
+    res.json(profitHistory);
+  } catch (e: any) {
+    console.error('Get profit history error:', e?.message || e);
+    res.status(500).json({ error: 'Failed to get profit history' });
+  }
+});
+
 adminRouter.get('/transactions', async (_req: AuthRequest, res: Response) => {
   try {
     const transactions = await prisma.transaction.findMany({

@@ -18,6 +18,7 @@ import { dashboardRouter } from './routes/dashboard';
 import { adminAgentsRouter } from './routes/adminAgents';
 import { paymentRouter, paymentWebhookRouter } from './routes/payment';
 import { authenticateToken } from './middleware/auth';
+import { startDailyProfitScheduler } from './scheduler';
 import prisma from './db';
 
 dotenv.config();
@@ -217,6 +218,15 @@ app.use((err: any, _req: any, res: any, _next: any) => {
   if (res.headersSent) return;
   res.status(500).json({ error: 'Internal server error' });
 });
+
+// ============================================================
+// DAILY PROFIT SCHEDULER - Start immediately on boot (non-Vercel only)
+// Processes ALL active investments every 60 seconds.
+// Idempotent via lastProfitDate - no duplicate/skipped days.
+// ============================================================
+if (process.env.VERCEL !== '1') {
+  startDailyProfitScheduler();
+}
 
 export default app;
 

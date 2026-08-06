@@ -102,6 +102,7 @@ export const adminApi = {
 
   // Orders
   getOrders: () => api<any[]>('/orders'),
+  getOrderProfitHistory: (orderId: string) => api<any[]>(`/orders/${orderId}/profit-history`),
   pauseOrder: (orderId: string) => api(`/orders/${orderId}/pause`, { method: 'PUT' }),
   resumeOrder: (orderId: string) => api(`/orders/${orderId}/resume`, { method: 'PUT' }),
   cancelOrder: (orderId: string, reason?: string) => api(`/orders/${orderId}/cancel`, { method: 'PUT', body: JSON.stringify({ reason }) }),
