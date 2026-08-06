@@ -8,7 +8,7 @@ import { settingsEnforcer } from '../services/settingsEnforcer';
 import { useResponsive } from '../hooks/useResponsive';
 import { getReferralLink } from '../utils/domain';
 import { FORMAT_CURRENCY } from '../constants';
-import type { ReferralStats, AgentReferral, AgentCommission, AgentProfile } from '../types';
+import type { ReferralStats, ReferralEntry, AgentCommission, AgentProfile } from '../types';
 
 export const InviteSection: React.FC = React.memo(() => {
   const { user } = useAuth();
@@ -16,7 +16,6 @@ export const InviteSection: React.FC = React.memo(() => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [agentProfile, setAgentProfile] = useState<AgentProfile | null>(null);
-  const [agentReferrals, setAgentReferrals] = useState<AgentReferral[]>([]);
   const [agentCommissions, setAgentCommissions] = useState<AgentCommission[]>([]);
   const [commissionRate, setCommissionRate] = useState(30);
   const [stats, setStats] = useState<ReferralStats>({
@@ -26,7 +25,6 @@ export const InviteSection: React.FC = React.memo(() => {
   });
   const [loading, setLoading] = useState(true);
 
-  // Generate invitation link dynamically from the code (never use stored URL which may have old domain)
   const invitationCode = user?.invitationCode || '';
   const invitationLink = invitationCode ? getReferralLink(invitationCode) : '';
 
@@ -36,16 +34,14 @@ export const InviteSection: React.FC = React.memo(() => {
       return;
     }
     try {
-      const [s, p, r, c, settings] = await Promise.all([
+      const [s, p, c, settings] = await Promise.all([
         getReferralStatsAPI(user.invitationCode),
         agentService.getOrCreateAgent(),
-        agentService.getReferrals(),
         agentService.getCommissions(),
         settingsEnforcer.getSettings(),
       ]);
       setStats(s);
       setAgentProfile(p);
-      setAgentReferrals(r);
       setAgentCommissions(c);
       if (settings?.referralCommissionPercent) {
         setCommissionRate(settings.referralCommissionPercent);
@@ -58,7 +54,6 @@ export const InviteSection: React.FC = React.memo(() => {
 
   useEffect(() => {
     loadAllData();
-    // Auto-refresh every 30 seconds for real-time updates
     const interval = setInterval(loadAllData, 30000);
     return () => clearInterval(interval);
   }, [loadAllData]);
@@ -74,7 +69,6 @@ export const InviteSection: React.FC = React.memo(() => {
         setTimeout(() => setCopiedLink(false), 2000);
       }
     } catch {
-      // Fallback
       const textarea = document.createElement('textarea');
       textarea.value = text;
       document.body.appendChild(textarea);
@@ -110,13 +104,13 @@ export const InviteSection: React.FC = React.memo(() => {
 
   if (!user) return null;
 
-  // Statistics come from backend /api/referrals (single source of truth)
   const totalInvited = stats.totalReferrals ?? stats.referralCount ?? 0;
   const activeReferrals = stats.activeReferrals ?? 0;
   const depositedReferrals = stats.depositedReferrals ?? 0;
   const totalDeposits = stats.totalDepositAmount ?? 0;
   const totalEarned = stats.totalCommissionEarned ?? 0;
   const pendingCommission = stats.pendingCommission ?? 0;
+  const referralHistory: ReferralEntry[] = stats.recentReferrals || [];
 
   return (
     <div
@@ -143,20 +137,10 @@ export const InviteSection: React.FC = React.memo(() => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
       >
-        <h2 style={{
-          fontSize: typography.xl,
-          fontWeight: typography.bold,
-          color: colors.textPrimary,
-          fontFamily: typography.fontFamily,
-        }}>
+        <h2 style={{ fontSize: typography.xl, fontWeight: typography.bold, color: colors.textPrimary, fontFamily: typography.fontFamily }}>
           Invite & Earn
         </h2>
-        <p style={{
-          fontSize: typography.sm,
-          color: colors.textTertiary,
-          fontFamily: typography.fontFamily,
-          maxWidth: 'clamp(280px, 70vw, 400px)',
-        }}>
+        <p style={{ fontSize: typography.sm, color: colors.textTertiary, fontFamily: typography.fontFamily, maxWidth: 'clamp(280px, 70vw, 400px)' }}>
           Share your invitation link and earn {commissionRate}% commission when your friends join.
         </p>
       </motion.div>
@@ -170,87 +154,30 @@ export const InviteSection: React.FC = React.memo(() => {
         <>
           {/* Invitation Link & Code Card */}
           <motion.div
-            style={{
-              width: '100%',
-              background: colors.gradientGlass,
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-              border: `1px solid ${colors.borderDefault}`,
-              borderRadius: borderRadius.xl,
-              overflow: 'hidden',
-            }}
+            style={{ width: '100%', background: colors.gradientGlass, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.xl, overflow: 'hidden' }}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.1 }}
           >
-            <div
-              style={{
-                padding: 'clamp(16px, 2.5vw, 24px)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 'clamp(16px, 2.5vh, 24px)',
-              }}
-            >
+            <div style={{ padding: 'clamp(16px, 2.5vw, 24px)', display: 'flex', flexDirection: 'column', gap: 'clamp(16px, 2.5vh, 24px)' }}>
               <h3 style={{ fontSize: typography.md, fontWeight: typography.bold, color: colors.textPrimary, fontFamily: typography.fontFamily }}>Your Invitation</h3>
 
               {/* Link Section */}
               <div>
-                <p style={{
-                  fontSize: typography.sm,
-                  fontWeight: typography.semibold,
-                  color: colors.textSecondary,
-                  fontFamily: typography.fontFamily,
-                  marginBottom: 'clamp(6px, 1vh, 10px)',
-                }}>
+                <p style={{ fontSize: typography.sm, fontWeight: typography.semibold, color: colors.textSecondary, fontFamily: typography.fontFamily, marginBottom: 'clamp(6px, 1vh, 10px)' }}>
                   Invitation Link
                 </p>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'clamp(8px, 1.2vw, 12px)',
-                    padding: 'clamp(10px, 1.5vh, 14px) clamp(12px, 1.5vw, 16px)',
-                    background: colors.bgGlassLight,
-                    border: `1px solid ${colors.borderDefault}`,
-                    borderRadius: borderRadius.md,
-                    overflow: 'hidden',
-                  }}
-                >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(8px, 1.2vw, 12px)', padding: 'clamp(10px, 1.5vh, 14px) clamp(12px, 1.5vw, 16px)', background: colors.bgGlassLight, border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.md, overflow: 'hidden' }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textTertiary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                     <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
                     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
                   </svg>
-                  <span
-                    style={{
-                      flex: 1,
-                      fontSize: typography.sm,
-                      color: colors.textSecondary,
-                      fontFamily: typography.fontFamilyMono,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
+                  <span style={{ flex: 1, fontSize: typography.sm, color: colors.textSecondary, fontFamily: typography.fontFamilyMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {invitationLink}
                   </span>
                   <motion.button
                     onClick={() => copyToClipboard(invitationLink, 'link')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: 'clamp(4px, 0.6vh, 6px) clamp(8px, 1vw, 12px)',
-                      background: copiedLink ? 'rgba(16, 185, 129, 0.15)' : colors.bgGlass,
-                      border: `1px solid ${copiedLink ? 'rgba(16, 185, 129, 0.3)' : colors.borderDefault}`,
-                      borderRadius: borderRadius.sm,
-                      cursor: 'pointer',
-                      fontSize: typography.xs,
-                      fontWeight: typography.semibold,
-                      color: copiedLink ? colors.success : colors.primary,
-                      fontFamily: typography.fontFamily,
-                      flexShrink: 0,
-                      transition: 'all 0.2s ease',
-                    }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: 'clamp(4px, 0.6vh, 6px) clamp(8px, 1vw, 12px)', background: copiedLink ? 'rgba(16, 185, 129, 0.15)' : colors.bgGlass, border: `1px solid ${copiedLink ? 'rgba(16, 185, 129, 0.3)' : colors.borderDefault}`, borderRadius: borderRadius.sm, cursor: 'pointer', fontSize: typography.xs, fontWeight: typography.semibold, color: copiedLink ? colors.success : colors.primary, fontFamily: typography.fontFamily, flexShrink: 0, transition: 'all 0.2s ease' }}
                     whileHover={{ background: colors.bgGlassLight }}
                     whileTap={{ scale: 0.95 }}
                   >
@@ -261,73 +188,22 @@ export const InviteSection: React.FC = React.memo(() => {
 
               {/* Code Section */}
               <div>
-                <p style={{
-                  fontSize: typography.sm,
-                  fontWeight: typography.semibold,
-                  color: colors.textSecondary,
-                  fontFamily: typography.fontFamily,
-                  marginBottom: 'clamp(6px, 1vh, 10px)',
-                }}>
+                <p style={{ fontSize: typography.sm, fontWeight: typography.semibold, color: colors.textSecondary, fontFamily: typography.fontFamily, marginBottom: 'clamp(6px, 1vh, 10px)' }}>
                   Invitation Code
                 </p>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'clamp(8px, 1.2vw, 12px)',
-                    padding: 'clamp(10px, 1.5vh, 14px) clamp(12px, 1.5vw, 16px)',
-                    background: colors.bgGlassLight,
-                    border: `1px solid ${colors.borderDefault}`,
-                    borderRadius: borderRadius.md,
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 'clamp(36px, 4vw, 44px)',
-                      height: 'clamp(36px, 4vw, 44px)',
-                      borderRadius: borderRadius.sm,
-                      background: colors.gradientBlue,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(8px, 1.2vw, 12px)', padding: 'clamp(10px, 1.5vh, 14px) clamp(12px, 1.5vw, 16px)', background: colors.bgGlassLight, border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.md }}>
+                  <div style={{ width: 'clamp(36px, 4vw, 44px)', height: 'clamp(36px, 4vw, 44px)', borderRadius: borderRadius.sm, background: colors.gradientBlue, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.textPrimary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                       <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                     </svg>
                   </div>
-                  <span
-                    style={{
-                      flex: 1,
-                      fontSize: typography.lg,
-                      fontWeight: typography.bold,
-                      color: colors.textPrimary,
-                      fontFamily: typography.fontFamilyMono,
-                      letterSpacing: '0.1em',
-                    }}
-                  >
+                  <span style={{ flex: 1, fontSize: typography.lg, fontWeight: typography.bold, color: colors.textPrimary, fontFamily: typography.fontFamilyMono, letterSpacing: '0.1em' }}>
                     {invitationCode}
                   </span>
                   <motion.button
                     onClick={() => copyToClipboard(invitationCode, 'code')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: 'clamp(4px, 0.6vh, 6px) clamp(8px, 1vw, 12px)',
-                      background: copiedCode ? 'rgba(16, 185, 129, 0.15)' : colors.bgGlass,
-                      border: `1px solid ${copiedCode ? 'rgba(16, 185, 129, 0.3)' : colors.borderDefault}`,
-                      borderRadius: borderRadius.sm,
-                      cursor: 'pointer',
-                      fontSize: typography.xs,
-                      fontWeight: typography.semibold,
-                      color: copiedCode ? colors.success : colors.primary,
-                      fontFamily: typography.fontFamily,
-                      flexShrink: 0,
-                      transition: 'all 0.2s ease',
-                    }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: 'clamp(4px, 0.6vh, 6px) clamp(8px, 1vw, 12px)', background: copiedCode ? 'rgba(16, 185, 129, 0.15)' : colors.bgGlass, border: `1px solid ${copiedCode ? 'rgba(16, 185, 129, 0.3)' : colors.borderDefault}`, borderRadius: borderRadius.sm, cursor: 'pointer', fontSize: typography.xs, fontWeight: typography.semibold, color: copiedCode ? colors.success : colors.primary, fontFamily: typography.fontFamily, flexShrink: 0, transition: 'all 0.2s ease' }}
                     whileHover={{ background: colors.bgGlassLight }}
                     whileTap={{ scale: 0.95 }}
                   >
@@ -339,23 +215,7 @@ export const InviteSection: React.FC = React.memo(() => {
               {/* Native Share Button */}
               <motion.button
                 onClick={handleShare}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  width: '100%',
-                  padding: 'clamp(12px, 1.8vh, 16px)',
-                  background: colors.gradientBlue,
-                  border: 'none',
-                  borderRadius: borderRadius.md,
-                  cursor: 'pointer',
-                  fontSize: typography.base,
-                  fontWeight: typography.semibold,
-                  color: colors.textPrimary,
-                  fontFamily: typography.fontFamily,
-                  boxShadow: shadows.glow,
-                }}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%', padding: 'clamp(12px, 1.8vh, 16px)', background: colors.gradientBlue, border: 'none', borderRadius: borderRadius.md, cursor: 'pointer', fontSize: typography.base, fontWeight: typography.semibold, color: colors.textPrimary, fontFamily: typography.fontFamily, boxShadow: shadows.glow }}
                 whileHover={{ opacity: 0.9 }}
                 whileTap={{ scale: 0.98 }}
               >
@@ -373,18 +233,7 @@ export const InviteSection: React.FC = React.memo(() => {
 
           {/* Referral Statistics */}
           <motion.div
-            style={{
-              width: '100%',
-              background: colors.gradientGlass,
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-              border: `1px solid ${colors.borderDefault}`,
-              borderRadius: borderRadius.xl,
-              padding: 'clamp(16px, 2.5vw, 24px)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 'clamp(12px, 1.5vh, 16px)',
-            }}
+            style={{ width: '100%', background: colors.gradientGlass, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.xl, padding: 'clamp(16px, 2.5vw, 24px)', display: 'flex', flexDirection: 'column', gap: 'clamp(12px, 1.5vh, 16px)' }}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.15 }}
@@ -400,17 +249,9 @@ export const InviteSection: React.FC = React.memo(() => {
             </div>
           </motion.div>
 
-          {/* Referral History Table */}
+          {/* Referral History Table - Uses referral API recentReferrals data */}
           <motion.div
-            style={{
-              width: '100%',
-              background: colors.gradientGlass,
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-              border: `1px solid ${colors.borderDefault}`,
-              borderRadius: borderRadius.xl,
-              overflow: 'hidden',
-            }}
+            style={{ width: '100%', background: colors.gradientGlass, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.xl, overflow: 'hidden' }}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.2 }}
@@ -418,13 +259,13 @@ export const InviteSection: React.FC = React.memo(() => {
             <div style={{ padding: 'clamp(16px, 2.5vw, 24px)', borderBottom: `1px solid ${colors.borderDefault}` }}>
               <h3 style={{ fontSize: typography.md, fontWeight: typography.bold, color: colors.textPrimary, fontFamily: typography.fontFamily }}>Referral History</h3>
             </div>
-            {agentReferrals.length === 0 ? (
+            {referralHistory.length === 0 ? (
               <div style={{ padding: 'clamp(24px, 3vw, 32px)', textAlign: 'center' }}>
                 <p style={{ fontSize: typography.sm, color: colors.textTertiary, fontFamily: typography.fontFamily }}>No referrals yet. Share your invitation code to start earning.</p>
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: typography.sm, minWidth: '600px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: typography.sm, minWidth: '500px' }}>
                   <thead>
                     <tr style={{ background: colors.bgGlassMedium }}>
                       <th style={{ padding: 'clamp(10px, 1.5vh, 14px)', textAlign: 'left', color: colors.textSecondary, fontWeight: typography.semibold, fontFamily: typography.fontFamily, fontSize: typography.xs, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Date</th>
@@ -435,15 +276,15 @@ export const InviteSection: React.FC = React.memo(() => {
                     </tr>
                   </thead>
                   <tbody>
-                    {agentReferrals.map((r, i) => (
-                      <tr key={r.id} style={{ borderTop: `1px solid ${colors.borderDefault}`, background: i % 2 === 0 ? 'transparent' : colors.bgGlass }}>
-                        <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', color: colors.textSecondary, fontFamily: typography.fontFamily, whiteSpace: 'nowrap' }}>{new Date(r.registeredDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                    {referralHistory.map((r, i) => (
+                      <tr key={r.id || `ref-${i}`} style={{ borderTop: `1px solid ${colors.borderDefault}`, background: i % 2 === 0 ? 'transparent' : colors.bgGlass }}>
+                        <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', color: colors.textSecondary, fontFamily: typography.fontFamily, whiteSpace: 'nowrap' }}>{new Date(r.joinedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                         <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', color: colors.textPrimary, fontFamily: typography.fontFamily, fontWeight: typography.semibold }}>{r.fullName}</td>
-                        <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', textAlign: 'right', color: colors.textPrimary, fontFamily: typography.fontFamily }}>{r.totalApprovedDeposits && r.totalApprovedDeposits > 0 ? FORMAT_CURRENCY(r.totalApprovedDeposits) : '—'}</td>
-                        <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', textAlign: 'right', color: r.commission ? colors.success : colors.textTertiary, fontFamily: typography.fontFamily, fontWeight: r.commission ? typography.semibold : typography.regular }}>{r.commission ? FORMAT_CURRENCY(r.commission) : '—'}</td>
+                        <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', textAlign: 'right', color: colors.textPrimary, fontFamily: typography.fontFamily }}>{r.totalDeposit && r.totalDeposit > 0 ? FORMAT_CURRENCY(r.totalDeposit) : '—'}</td>
+                        <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', textAlign: 'right', color: r.hasDeposit ? colors.success : colors.textTertiary, fontFamily: typography.fontFamily, fontWeight: r.hasDeposit ? typography.semibold : typography.regular }}>{r.hasDeposit ? FORMAT_CURRENCY((r.totalDeposit || 0) * commissionRate / 100) : '—'}</td>
                         <td style={{ padding: 'clamp(10px, 1.5vh, 14px)', textAlign: 'center' }}>
-                          <span style={{ fontSize: typography.xs, fontWeight: typography.semibold, padding: '2px 10px', borderRadius: borderRadius.full, background: r.displayStatus === 'qualified' ? 'rgba(16,185,129,0.1)' : 'rgba(234,179,8,0.1)', border: `1px solid ${r.displayStatus === 'qualified' ? 'rgba(16,185,129,0.3)' : 'rgba(234,179,8,0.3)'}`, color: r.displayStatus === 'qualified' ? colors.success : colors.warning, fontFamily: typography.fontFamily }}>
-                            {r.displayStatus === 'qualified' ? 'Qualified' : 'Waiting Deposit'}
+                          <span style={{ fontSize: typography.xs, fontWeight: typography.semibold, padding: '2px 10px', borderRadius: borderRadius.full, background: r.hasDeposit ? 'rgba(16,185,129,0.1)' : 'rgba(234,179,8,0.1)', border: `1px solid ${r.hasDeposit ? 'rgba(16,185,129,0.3)' : 'rgba(234,179,8,0.3)'}`, color: r.hasDeposit ? colors.success : colors.warning, fontFamily: typography.fontFamily }}>
+                            {r.hasDeposit ? 'Qualified' : 'Registered'}
                           </span>
                         </td>
                       </tr>
@@ -457,15 +298,7 @@ export const InviteSection: React.FC = React.memo(() => {
           {/* Commission History */}
           {agentCommissions.length > 0 && (
             <motion.div
-              style={{
-                width: '100%',
-                background: colors.gradientGlass,
-                backdropFilter: 'blur(20px)',
-                WebkitBackdropFilter: 'blur(20px)',
-                border: `1px solid ${colors.borderDefault}`,
-                borderRadius: borderRadius.xl,
-                overflow: 'hidden',
-              }}
+              style={{ width: '100%', background: colors.gradientGlass, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: `1px solid ${colors.borderDefault}`, borderRadius: borderRadius.xl, overflow: 'hidden' }}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.25 }}
@@ -489,7 +322,6 @@ export const InviteSection: React.FC = React.memo(() => {
               </div>
             </motion.div>
           )}
-
         </>
       )}
     </div>
