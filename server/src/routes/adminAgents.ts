@@ -61,13 +61,10 @@ adminAgentsRouter.get('/', async (_req: AuthRequest, res: Response) => {
     `;
 
     // Convert BigInt values to numbers (PostgreSQL COUNT/SUM return BigInt)
-    const serialized = (agents || []).map((a: any) => {
-      const result: any = {};
-      for (const [key, value] of Object.entries(a)) {
-        result[key] = typeof value === 'bigint' ? Number(value) : value;
-      }
-      return result;
-    });
+    // Use JSON.stringify with BigInt replacer to handle ALL nested BigInt values
+    const serialized = JSON.parse(JSON.stringify(agents || [], (_key, value) =>
+      typeof value === 'bigint' ? Number(value) : value
+    ));
 
     res.json(serialized);
   } catch (error) {
