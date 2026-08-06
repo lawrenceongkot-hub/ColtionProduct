@@ -269,7 +269,7 @@ export const AdminOrders: React.FC = React.memo(() => {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
                   {[{ label: 'Order Amount', value: `₱${selectedOrder.buyAmount.toLocaleString()}` }, { label: 'Daily Profit', value: `₱${selectedOrder.dailyProfitPerDay.toLocaleString()}` },
                     { label: 'Total Profit Earned', value: `₱${selectedOrder.currentProfit.toLocaleString()}` }, { label: 'Remaining Profit', value: `₱${Math.max(0, selectedOrder.totalReturn - selectedOrder.currentProfit).toLocaleString()}` },
-                    { label: 'Days Completed', value: `${selectedOrder.completedDays} / ${selectedOrder.duration}` }, { label: 'Days Remaining', value: selectedOrder.daysRemaining.toString() },
+                    { label: 'Days Completed', value: `${selectedOrder.completedDays ?? 0} / ${selectedOrder.duration ?? 0}` }, { label: 'Days Remaining', value: (selectedOrder.daysRemaining ?? Math.max(0, (selectedOrder.duration ?? 0) - (selectedOrder.completedDays ?? 0))).toString() },
                     { label: 'Progress', value: `${selectedOrder.progressPercent}%` }, { label: 'Status', value: <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, background: `${statusColor(selectedOrder.status)}15`, color: statusColor(selectedOrder.status) }}>{selectedOrder.status}</span> }].map((f, i) => (
                     <div key={i} style={{ padding: '10px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
                       <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', fontWeight: 500, marginBottom: '4px' }}>{f.label}</div>

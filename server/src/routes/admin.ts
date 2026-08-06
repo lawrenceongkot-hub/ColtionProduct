@@ -486,10 +486,29 @@ adminRouter.get('/orders', async (_req: AuthRequest, res: Response) => {
   try {
     const orders = await prisma.investmentOrder.findMany({
       orderBy: { purchaseDate: 'desc' },
-      include: { user: { select: { fullName: true, email: true } } },
+      include: { user: { select: { fullName: true, email: true, phone: true } } },
     });
-    res.json(orders);
-  } catch {
+
+    // Enrich orders with computed fields the frontend expects.
+    // NEVER crash: provide safe defaults for every computed value.
+    const enriched = orders.map(o => {
+      const duration = o.duration || 0;
+      const completedDays = o.completedDays || 0;
+      const progressPercent = duration > 0 ? Math.min(100, Math.round((completedDays / duration) * 100)) : (o.status === 'COMPLETED' ? 100 : 0);
+      const daysRemaining = Math.max(0, duration - completedDays);
+      return {
+        ...o,
+        progressPercent,
+        daysRemaining,
+        userFullName: o.user?.fullName || '',
+        userEmail: o.user?.email || '',
+        userPhone: o.user?.phone || '',
+      };
+    });
+
+    res.json(enriched);
+  } catch (e: any) {
+    console.error('Get orders error:', e?.message || e);
     res.status(500).json({ error: 'Failed to get orders' });
   }
 });
