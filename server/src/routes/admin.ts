@@ -127,10 +127,33 @@ adminRouter.get('/users', async (_req: AuthRequest, res: Response) => {
       select: {
         id: true, displayId: true, fullName: true, email: true, phone: true,
         invitationCode: true, referralCount: true, createdAt: true,
+        invitedBy: true, isDemo: true, status: true, verificationStatus: true,
         wallet: { select: { main: true } },
       },
     });
-    res.json(users);
+
+    // Resolve referrer display IDs for all users who have an invitedBy code
+    const invitedByCodes = users.map(u => u.invitedBy).filter(Boolean) as string[];
+    const referrers = invitedByCodes.length > 0
+      ? await prisma.user.findMany({
+          where: { invitationCode: { in: invitedByCodes } },
+          select: { invitationCode: true, displayId: true, fullName: true },
+        })
+      : [];
+    const referrerMap = new Map(referrers.map(r => [r.invitationCode, r]));
+
+    // Enrich users with referrer info
+    const enriched = users.map(u => {
+      const referrer = u.invitedBy ? referrerMap.get(u.invitedBy) : null;
+      return {
+        ...u,
+        referredBy: u.invitedBy || '',
+        referrerDisplayId: referrer?.displayId || '',
+        referrerFullName: referrer?.fullName || '',
+      };
+    });
+
+    res.json(enriched);
   } catch {
     res.status(500).json({ error: 'Failed to get users' });
   }
