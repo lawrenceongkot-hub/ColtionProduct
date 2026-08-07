@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../db';
 import { AuthRequest, authenticateToken, requireAdmin } from '../middleware/auth';
+import { processReferralCommission } from '../services/referralCommission';
 
 export const adminRouter = Router();
 
@@ -284,139 +285,25 @@ adminRouter.put('/deposits/:id/approve', async (req: AuthRequest, res: Response)
     if (!deposit) return res.status(404).json({ error: 'Deposit not found' });
     if (deposit.status !== 'PENDING') return res.status(400).json({ error: 'Already processed' });
 
-    const settings = await prisma.platformSettings.findUnique({ where: { id: 'default' } });
-    const commissionRate = (settings?.referralCommissionPercent || 30) / 100;
-
     await prisma.$transaction(async (tx) => {
       await tx.deposit.update({
         where: { id },
         data: { status: 'SUCCESS', completedAt: new Date(), approvedBy: 'Admin' },
       });
 
-      const wallet = await tx.wallet.findUnique({ where: { userId: deposit.userId } });
-      if (wallet) {
-        // BUSINESS LOGIC: Deposits MUST credit SemWallet (NOT Main Wallet)
-        // SemWallet = deposits, welcome bonuses, promotional bonuses, VIP purchases
-        // Main Wallet = withdrawals, matured profits, referral commissions, admin adjustments
-        await tx.wallet.update({
-          where: { userId: deposit.userId },
-          data: { semWallet: { increment: deposit.amount } },
-        });
-      }
+      // BUSINESS LOGIC: Deposits MUST credit SemWallet (NOT Main Wallet)
+      await tx.wallet.update({
+        where: { userId: deposit.userId },
+        data: { semWallet: { increment: deposit.amount } },
+      });
 
       await tx.transaction.updateMany({
         where: { reference: deposit.reference },
         data: { status: 'SUCCESS', completedAt: new Date() },
       });
 
-      const existingDeposits = await tx.deposit.count({
-        where: { userId: deposit.userId, status: 'SUCCESS' },
-      });
-
-      if (existingDeposits === 1) {
-        const user = await tx.user.findUnique({ where: { id: deposit.userId } });
-        if (user?.referrerAgentId) {
-          const agent = await tx.agentProfile.findUnique({ where: { id: user.referrerAgentId } });
-          if (agent) {
-            const commissionAmount = Math.round(deposit.amount * commissionRate);
-
-            await tx.agentReferral.updateMany({
-              where: { userId: deposit.userId, status: 'WAITING_DEPOSIT' },
-              data: {
-                firstDeposit: deposit.amount,
-                commission: commissionAmount,
-                status: 'COMMISSION_PAID',
-              },
-            });
-
-            await tx.agentCommission.create({
-              data: {
-                agentId: agent.id,
-                referredUserId: deposit.userId,
-                referredName: user.fullName,
-                depositAmount: deposit.amount,
-                commissionRate,
-                commissionAmount,
-              },
-            });
-
-            const agentWallet = await tx.wallet.findUnique({ where: { userId: agent.userId } });
-            if (agentWallet) {
-              await tx.wallet.update({
-                where: { userId: agent.userId },
-                data: { main: { increment: commissionAmount } },
-              });
-            }
-
-            await tx.agentProfile.update({
-              where: { id: agent.id },
-              data: {
-                totalCommission: { increment: commissionAmount },
-                qualifiedDeposits: { increment: 1 },
-                availableBalance: { increment: commissionAmount },
-              },
-            });
-
-            await tx.transaction.create({
-              data: {
-                userId: agent.userId,
-                type: 'REFERRAL_COMMISSION',
-                amount: commissionAmount,
-                method: `Referral Commission - ${user.fullName}`,
-                reference: 'REFCOM-' + deposit.reference.slice(-8),
-                status: 'SUCCESS',
-              },
-            });
-          }
-        }
-
-        // Regular user referral commission (invitedBy)
-        if (user?.invitedBy) {
-          const inviter = await tx.user.findFirst({ where: { invitationCode: user.invitedBy } });
-          if (inviter) {
-            const commissionAmount = Math.round(deposit.amount * commissionRate);
-
-            // Credit inviter's Main Wallet
-            await tx.wallet.update({
-              where: { userId: inviter.id },
-              data: { main: { increment: commissionAmount } },
-            });
-
-            // Update inviter's totalReferralEarnings
-            await tx.user.update({
-              where: { id: inviter.id },
-              data: { totalReferralEarnings: { increment: commissionAmount } },
-            });
-
-            // Create REFERRAL_COMMISSION transaction
-            await tx.transaction.create({
-              data: {
-                userId: inviter.id,
-                type: 'REFERRAL_COMMISSION',
-                amount: commissionAmount,
-                method: `Referral Commission - ${user.fullName}`,
-                reference: 'REFCOM-' + deposit.reference.slice(-8),
-                status: 'SUCCESS',
-              },
-            });
-
-            // Create notification for referrer
-            await tx.notification.create({
-              data: {
-                userId: inviter.id,
-                type: 'REFERRAL_COMMISSION',
-                message: `You earned ₱${commissionAmount} referral commission from ${user.fullName}'s first deposit.`,
-              },
-            });
-
-            // Update referral status
-            await tx.referral.updateMany({
-              where: { referredUserId: deposit.userId },
-              data: { status: 'COMMISSION_PAID' },
-            });
-          }
-        }
-      }
+      // Use shared referral commission logic - SAME as Moxsys webhook (single source of truth)
+      await processReferralCommission(tx as any, deposit.userId, deposit.amount, deposit.reference);
     });
 
     res.json({ success: true });

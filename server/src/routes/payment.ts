@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../db';
 import { AuthRequest } from '../middleware/auth';
+import { processReferralCommission } from '../services/referralCommission';
 
 export const paymentRouter = Router();
 export const paymentWebhookRouter = Router();
@@ -268,6 +269,10 @@ paymentWebhookRouter.post('/moxsys/webhook', async (req: Request, res: Response)
           await tx.notification.create({
             data: { userId: deposit.userId, type: 'DEPOSIT_APPROVED', message: `Your deposit of ₱${deposit.amount.toLocaleString()} has been approved.`, read: false },
           });
+
+          // CRITICAL FIX: Execute referral commission (30%) for FIRST successful deposit.
+          // Uses the SAME shared logic as admin approval - single source of truth.
+          await processReferralCommission(tx as any, deposit.userId, deposit.amount, deposit.reference);
         } else {
           await tx.transaction.updateMany({
             where: { reference: deposit.reference },
