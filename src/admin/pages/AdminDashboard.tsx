@@ -37,6 +37,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = React.memo(({ onNav
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastEventRef = useRef<string>('');
   const renderCountRef = useRef(0);
+  const clockRef = useRef<HTMLSpanElement | null>(null);
   renderCountRef.current++;
 
   console.log('=== ADMIN DASHBOARD RENDER #' + renderCountRef.current + ' ===');
@@ -78,9 +79,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = React.memo(({ onNav
   }, [fetchStats]);
 
 
-  // Clock update
+  // Clock update - update DOM directly via ref to avoid full component re-renders every second
   useEffect(() => {
-    const clock = setInterval(() => setCurrentTime(dashboardService.getCurrentTime()), 1000);
+    const clock = setInterval(() => {
+      if (clockRef.current) {
+        clockRef.current.textContent = dashboardService.getCurrentTime();
+      }
+    }, 1000);
     return () => clearInterval(clock);
   }, []);
 
@@ -158,7 +163,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = React.memo(({ onNav
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
             </svg>
-            {currentTime}
+            <span ref={clockRef}>{currentTime}</span>
           </div>
           <div style={{
             display: 'flex', alignItems: 'center', gap: '6px',

@@ -68,33 +68,8 @@ orderRouter.post('/purchase', async (req: AuthRequest, res: Response) => {
 
 orderRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    // Lazy daily-profit processing: for every ACTIVE order, credit daily profit to Ongoing wallet
-    await prisma.$transaction(async (tx) => {
-      const activeOrders = await tx.investmentOrder.findMany({ where: { userId: req.user!.id, status: 'ACTIVE' } });
-      const now = new Date();
-      for (const order of activeOrders) {
-        const start = order.lastProfitDate || order.purchaseDate;
-        const daysElapsed = Math.floor((now.getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24));
-        if (daysElapsed > 0) {
-          const profitDays = Math.min(daysElapsed, order.duration - order.completedDays);
-          if (profitDays > 0) {
-            const profitAmount = profitDays * order.dailyProfitPerDay;
-            const newCompletedDays = order.completedDays + profitDays;
-            await tx.wallet.update({ where: { userId: req.user!.id }, data: { ongoing: { increment: profitAmount } } });
-            await tx.investmentOrder.update({ where: { id: order.id }, data: { completedDays: newCompletedDays, currentProfit: order.currentProfit + profitAmount, lastProfitDate: now } });
-            await tx.transaction.create({ data: { userId: req.user!.id, type: 'DAILY_PROFIT', amount: profitAmount, method: 'system', reference: 'PROFIT-' + order.id.slice(-8) + '-' + Date.now(), status: 'SUCCESS' } });
-          }
-        }
-        // If duration reached, transfer principal + accumulated profit to MainWallet, mark COMPLETED
-        if (order.completedDays + Math.max(daysElapsed, 0) >= order.duration || order.duration === 0) {
-          const totalReturn = order.totalReturn || (order.buyAmount + order.currentProfit + Math.max(daysElapsed, 0) * order.dailyProfitPerDay);
-          await tx.wallet.update({ where: { userId: req.user!.id }, data: { main: { increment: totalReturn }, ongoing: { decrement: Math.min(order.currentProfit + order.buyAmount, totalReturn) } } });
-          await tx.investmentOrder.update({ where: { id: order.id }, data: { status: 'COMPLETED', completedDays: order.duration, currentProfit: totalReturn - order.buyAmount, lastProfitDate: now } });
-          await tx.transaction.create({ data: { userId: req.user!.id, type: 'VIP_MATURITY_TRANSFER', amount: totalReturn, method: 'system', reference: 'MATURE-' + order.id.slice(-8) + '-' + Date.now(), status: 'SUCCESS', completedAt: now } });
-        }
-      }
-    });
-
+    // Daily profit processing is handled ONLY by the scheduler (server/src/scheduler.ts).
+    // This endpoint reads orders directly from the database without modifying them.
     const orders = await prisma.investmentOrder.findMany({
       where: { userId: req.user!.id },
       orderBy: { purchaseDate: 'desc' },

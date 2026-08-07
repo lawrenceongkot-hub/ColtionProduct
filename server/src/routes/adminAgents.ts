@@ -106,6 +106,10 @@ adminAgentsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
       orderBy: { createdAt: 'desc' },
     });
 
+    // Fetch real platform commission rate from production settings
+    const settings = await prisma.platformSettings.findUnique({ where: { id: 'default' } });
+    const platformCommissionRate = (settings?.referralCommissionPercent || 30) / 100;
+
     // Enrich referrals with totalApprovedDeposits and displayStatus
     const referralUserIds = referrals.map(r => r.referredUserId);
     const depositsForReferrals = referralUserIds.length > 0
@@ -159,6 +163,13 @@ adminAgentsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
     const conversionRate = referrals.length > 0 ? (firstDeposits / referrals.length) * 100 : 0;
     const totalCommission = commissions.reduce((sum, c) => sum + c.amount, 0);
 
+    // Build map of referred user name -> real deposit amount from production data
+    const referredDepositByName = new Map<string, number>();
+    for (const r of referrals) {
+      const dep = depositMap.get(r.referredUserId) || 0;
+      if (dep > 0) referredDepositByName.set(r.referredName, dep);
+    }
+
     res.json({
       id: user.id,
       userId: user.id,
@@ -174,16 +185,23 @@ adminAgentsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
         wallet: user.wallet,
       },
       referrals: enrichedReferrals,
-      commissions: commissions.map(c => ({
-        id: c.id,
-        agentId: user.id,
-        referredUserId: c.userId,
-        referredName: c.method?.replace('Referral Commission - ', '') || '',
-        depositAmount: 0,
-        commissionRate: 0,
-        commissionAmount: c.amount,
-        createdAt: c.createdAt,
-      })),
+      commissions: commissions.map(c => {
+        const referredName = c.method?.replace('Referral Commission - ', '') || '';
+        // Use REAL deposit amount from production data (matched by referred user name)
+        const realDeposit = referredDepositByName.get(referredName) || 0;
+        // Use REAL commission rate from production settings
+        const realRate = realDeposit > 0 ? c.amount / realDeposit : platformCommissionRate;
+        return {
+          id: c.id,
+          agentId: user.id,
+          referredUserId: c.userId,
+          referredName,
+          depositAmount: realDeposit,
+          commissionRate: realRate,
+          commissionAmount: c.amount,
+          createdAt: c.createdAt,
+        };
+      }),
       deposits,
       withdrawals,
       transactions,

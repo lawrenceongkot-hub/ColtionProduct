@@ -534,15 +534,21 @@ adminRouter.get('/orders/:id/profit-history', async (req: AuthRequest, res: Resp
     });
 
     // Map to the exact fields the frontend Profit History table expects
-    const profitHistory = transactions.map(t => ({
-      id: t.id,
-      date: t.createdAt,
-      amount: t.amount,
-      walletCredited: 'Ongoing Wallet',
-      status: t.status,
-      investmentDay: t.createdAt,
-      createdAt: t.createdAt,
-    }));
+    // investmentDay = actual day number of the investment (days since purchaseDate)
+    const purchaseTime = new Date(order.purchaseDate).getTime();
+    const profitHistory = transactions.map(t => {
+      const txTime = new Date(t.createdAt).getTime();
+      const dayNumber = Math.max(1, Math.floor((txTime - purchaseTime) / (1000 * 60 * 60 * 24)) + 1);
+      return {
+        id: t.id,
+        date: t.createdAt,
+        amount: t.amount,
+        walletCredited: 'Ongoing Wallet',
+        status: t.status,
+        investmentDay: dayNumber,
+        createdAt: t.createdAt,
+      };
+    });
 
     res.json(profitHistory);
   } catch (e: any) {

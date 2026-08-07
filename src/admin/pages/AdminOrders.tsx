@@ -32,11 +32,6 @@ export const AdminOrders: React.FC = React.memo(() => {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-  useEffect(() => {
-    const h = () => fetchData();
-    window.addEventListener('dashboard:update', h);
-    return () => window.removeEventListener('dashboard:update', h);
-  }, [fetchData]);
 
   const filtered = useMemo(() => {
     let list = orderManagementService.searchOrders(search, orders);
