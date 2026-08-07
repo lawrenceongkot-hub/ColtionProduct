@@ -20,8 +20,20 @@ withdrawalRouter.post('/', async (req: AuthRequest, res: Response) => {
     const netAmount = parsedAmount - fee;
 
     const withdrawal = await prisma.$transaction(async (tx) => {
+      // BUG #1 FIX: Reject if user already has a PENDING withdrawal
+      // Only ONE active withdrawal request may exist per user
+      const existingPending = await tx.withdrawal.findFirst({
+        where: { userId: req.user!.id, status: 'PENDING' },
+      });
+      if (existingPending) {
+        throw new Error('You already have a pending withdrawal.');
+      }
+
       const w = await tx.wallet.findUnique({ where: { userId: req.user!.id } });
       if (!w || w.main < parsedAmount) throw new Error('Insufficient balance');
+
+      // BUG #2 FIX: Deduct Main Wallet ONCE at creation time
+      // Approval will NOT deduct again
       await tx.wallet.update({ where: { userId: req.user!.id }, data: { main: { decrement: parsedAmount } } });
       const wd = await tx.withdrawal.create({
         data: {
@@ -50,7 +62,14 @@ withdrawalRouter.post('/', async (req: AuthRequest, res: Response) => {
     });
 
     res.status(201).json(withdrawal);
-  } catch {
+  } catch (e: any) {
+    // Return 409 Conflict for duplicate pending withdrawal
+    if (e?.message === 'You already have a pending withdrawal.') {
+      return res.status(409).json({ error: 'You already have a pending withdrawal.' });
+    }
+    if (e?.message === 'Insufficient balance') {
+      return res.status(400).json({ error: 'Insufficient balance' });
+    }
     res.status(500).json({ error: 'Failed to create withdrawal' });
   }
 });
