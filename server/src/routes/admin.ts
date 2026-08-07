@@ -221,10 +221,47 @@ adminRouter.delete('/users/wipe-all', async (req: AuthRequest, res: Response) =>
 adminRouter.delete('/users/:id', async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
-    await prisma.user.delete({ where: { id } });
+
+    // Delete the user and all related production records in one transaction
+    await prisma.$transaction(async (tx) => {
+      // Child tables first (respect foreign key order)
+      await tx.changePasswordToken.deleteMany({ where: { userId: id } });
+      await tx.notification.deleteMany({ where: { userId: id } });
+      await tx.walletLedger.deleteMany({ where: { userId: id } });
+      await tx.auditLog.deleteMany({ where: { userId: id } });
+      await tx.welcomeBonusClaim.deleteMany({ where: { userId: id } });
+      await tx.registrationFingerprint.deleteMany({ where: { userId: id } });
+      await tx.verificationRequest.deleteMany({ where: { userId: id } });
+      await tx.agentCommission.deleteMany({ where: { referredUserId: id } });
+      await tx.agentReferral.deleteMany({ where: { userId: id } });
+      await tx.referral.deleteMany({ where: { referredUserId: id } });
+      await tx.eWallet.deleteMany({ where: { userId: id } });
+      await tx.investmentOrder.deleteMany({ where: { userId: id } });
+      await tx.transaction.deleteMany({ where: { userId: id } });
+      await tx.withdrawal.deleteMany({ where: { userId: id } });
+      await tx.deposit.deleteMany({ where: { userId: id } });
+      await tx.userSession.deleteMany({ where: { userId: id } });
+      await tx.wallet.deleteMany({ where: { userId: id } });
+
+      // Delete agent profile if one exists
+      const agentProfile = await tx.agentProfile.findUnique({ where: { userId: id } });
+      if (agentProfile) {
+        await tx.agentCommission.deleteMany({ where: { agentId: agentProfile.id } });
+        await tx.agentReferral.deleteMany({ where: { agentId: agentProfile.id } });
+        await tx.agentProfile.delete({ where: { id: agentProfile.id } });
+      }
+
+      // Finally delete the user
+      await tx.user.delete({ where: { id } });
+    }, {
+      timeout: 30000,
+      maxWait: 30000,
+    });
+
     res.json({ success: true });
-  } catch {
-    res.status(500).json({ error: 'Failed to delete user' });
+  } catch (e: any) {
+    console.error('Delete user error:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'Failed to delete user' });
   }
 });
 

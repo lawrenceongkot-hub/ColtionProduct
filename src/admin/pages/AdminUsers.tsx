@@ -36,6 +36,11 @@ const CONFIRM_ACTIONS: Record<string, { title: string; message: string; color: s
   activate: { title: 'Activate Account', message: 'Reactivate this user account.', color: '#10B981' },
   forceLogout: { title: 'Force Logout', message: 'Destroy all active sessions for this user.', color: '#F59E0B' },
   changePassword: { title: 'Change Password', message: 'This will invalidate the old password and force login with new password.', color: '#0066FF' },
+  deleteUser: {
+    title: 'Delete User',
+    message: 'This action is permanent. This will permanently remove this user and all related production records. This action cannot be undone.',
+    color: '#EF4444',
+  },
   addMain: { title: 'Add Main Wallet', message: 'Credit the user Main Wallet balance.', color: '#10B981' },
   deductMain: { title: 'Deduct Main Wallet', message: 'Debit the user Main Wallet balance.', color: '#EF4444' },
   addSem: { title: 'Add SemWallet', message: 'Credit the user SemWallet balance.', color: '#10B981' },
@@ -223,17 +228,29 @@ export const AdminUsers: React.FC = React.memo(() => {
       }
       case 'convertDemo': success = await userManagementService.convertToDemo(userId); break;
       case 'convertReal': success = await userManagementService.convertToReal(userId); break;
+      case 'deleteUser': success = await userManagementService.deleteUser(userId); break;
     }
 
     setProcessing(false);
     if (success) {
+      if (action === 'deleteUser') {
+        // Close profile modal and refresh the user list after deletion
+        setConfirmAction(null);
+        setModalPassword('');
+        setSelectedUser(null);
+        setWalletBalances(null);
+        setActivityFeed([]);
+        fetchUsers();
+        window.dispatchEvent(new Event('dashboard:update'));
+        return;
+      }
       const actionLabel = action.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
       setModalSuccess(`${actionLabel} completed successfully`);
       setConfirmAction(null);
       setModalPassword('');
       if (selectedUser?.id === userId) refreshProfileData(userId);
     } else {
-      setModalError('Operation failed.');
+      setModalError('Operation failed. Please check server logs.');
     }
   };
 
@@ -679,6 +696,7 @@ export const AdminUsers: React.FC = React.memo(() => {
                     ...(selectedUser.isDemo === true
                       ? [{ label: 'Convert to Real', action: 'convertReal', color: '#10B981' }]
                       : [{ label: 'Convert to Demo', action: 'convertDemo', color: '#8B5CF6' }]),
+                    { label: 'Delete User', action: 'deleteUser', color: '#EF4444' },
                   ].map((btn, i) => (
                     <button key={i} onClick={() => setConfirmAction({ type: btn.action, userId: selectedUser.id })}
                       style={{
