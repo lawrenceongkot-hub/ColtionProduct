@@ -25,6 +25,7 @@ orderRouter.post('/purchase', async (req: AuthRequest, res: Response) => {
         data: { semWallet: { decrement: parsedAmount } },
       });
 
+      const parsedDuration = duration || 30;
       const o = await tx.investmentOrder.create({
         data: {
           userId: req.user!.id,
@@ -34,11 +35,12 @@ orderRouter.post('/purchase', async (req: AuthRequest, res: Response) => {
           buyAmount: parsedAmount,
           dailyRate: dailyRate || 0,
           dailyProfitPerDay: dailyProfitPerDay || 0,
-          duration: duration || 30,
+          duration: parsedDuration,
           totalReturn: totalReturn || 0,
           status: 'ACTIVE',
           purchaseDate: new Date(),
           completedDays: 0,
+          remainingDays: parsedDuration,
           currentProfit: 0,
         },
       });

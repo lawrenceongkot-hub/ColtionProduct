@@ -490,12 +490,12 @@ adminRouter.get('/orders', async (_req: AuthRequest, res: Response) => {
     });
 
     // Enrich orders with computed fields the frontend expects.
-    // NEVER crash: provide safe defaults for every computed value.
+    // Use remainingDays from the database (single source of truth).
     const enriched = orders.map(o => {
       const duration = o.duration || 0;
       const completedDays = o.completedDays || 0;
       const progressPercent = duration > 0 ? Math.min(100, Math.round((completedDays / duration) * 100)) : (o.status === 'COMPLETED' ? 100 : 0);
-      const daysRemaining = Math.max(0, duration - completedDays);
+      const daysRemaining = o.remainingDays ?? Math.max(0, duration - completedDays);
       return {
         ...o,
         progressPercent,
@@ -1000,16 +1000,20 @@ adminRouter.put('/orders/:id/complete', async (req: AuthRequest, res: Response) 
   }
 });
 
-// Manual credit profit
+// Manual credit profit (same logic as scheduler - one day profit)
 adminRouter.put('/orders/:id/credit-profit', async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
     const order = await prisma.investmentOrder.findUnique({ where: { id } });
     if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (order.status !== 'ACTIVE') return res.status(400).json({ error: 'Order is not active' });
     const profitAmount = order.dailyProfitPerDay;
+    const newCompletedDays = order.completedDays + 1;
+    const newRemainingDays = Math.max(0, order.duration - newCompletedDays);
+    const newCurrentProfit = order.currentProfit + profitAmount;
     await prisma.$transaction(async (tx) => {
       await tx.wallet.update({ where: { userId: order.userId }, data: { ongoing: { increment: profitAmount } } });
-      await tx.investmentOrder.update({ where: { id }, data: { completedDays: { increment: 1 }, currentProfit: { increment: profitAmount } } });
+      await tx.investmentOrder.update({ where: { id }, data: { completedDays: newCompletedDays, remainingDays: newRemainingDays, currentProfit: newCurrentProfit, lastProfitDate: new Date() } });
       await tx.transaction.create({ data: { userId: order.userId, type: 'DAILY_PROFIT', amount: profitAmount, method: 'system', reference: 'PROFIT-' + order.id.slice(-8) + '-' + Date.now(), status: 'SUCCESS' } });
     });
     res.json({ success: true });

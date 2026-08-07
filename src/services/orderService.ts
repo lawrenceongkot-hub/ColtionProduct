@@ -3,43 +3,9 @@ import { apiService } from './api';
 
 /**
  * Order service - reads from backend API.
- * No localStorage used.
+ * All progress/remaining/current profit values come from the backend database.
+ * No frontend calculations.
  */
-
-function getTodayDate(): string {
-  const d = new Date();
-  return d.toISOString().split('T')[0];
-}
-
-function getDaysBetween(startDate: string, endDate: string): number {
-  const start = new Date(startDate + 'T00:00:00');
-  const end = new Date(endDate + 'T00:00:00');
-  const diffTime = end.getTime() - start.getTime();
-  return Math.floor(diffTime / (1000 * 60 * 60 * 24));
-}
-
-function calculateCurrentProfit(order: InvestmentOrder): {
-  displayProfit: number;
-  displayCompletedDays: number;
-  daysRemaining: number;
-  displayStatus: 'active' | 'completed';
-} {
-  const today = getTodayDate();
-  const purchaseDate = order.purchaseDate.split('T')[0];
-
-  const daysSincePurchase = getDaysBetween(purchaseDate, today);
-  const completedMidnights = Math.max(0, daysSincePurchase);
-  const cappedCompletedDays = Math.min(completedMidnights, order.duration);
-  const daysRemaining = Math.max(0, order.duration - cappedCompletedDays);
-  const isCompleted = cappedCompletedDays >= order.duration;
-
-  return {
-    displayProfit: isCompleted ? order.totalReturn : cappedCompletedDays * order.dailyProfitPerDay,
-    displayCompletedDays: isCompleted ? order.duration : cappedCompletedDays,
-    daysRemaining,
-    displayStatus: isCompleted ? 'completed' : 'active',
-  };
-}
 
 export const orderService = {
   async getOrdersFromAPI(): Promise<InvestmentOrder[]> {
@@ -55,13 +21,22 @@ export const orderService = {
     return orders
       .filter(o => o.userId === userId)
       .map(order => {
-        const result = calculateCurrentProfit(order);
+        // Use backend-computed values directly - no frontend calculations
+        const duration = order.duration || 0;
+        const completedDays = order.completedDays || 0;
+        const remainingDays = order.remainingDays ?? Math.max(0, duration - completedDays);
+        const progressPercent = duration > 0 ? Math.min(100, Math.round((completedDays / duration) * 100)) : (order.status === 'COMPLETED' ? 100 : 0);
+        const displayStatus: 'active' | 'completed' = order.status === 'COMPLETED' || completedDays >= duration ? 'completed' : 'active';
+        const displayProfit = order.currentProfit || 0;
+
         return {
           ...order,
-          displayProfit: result.displayProfit,
-          displayCompletedDays: result.displayCompletedDays,
-          daysRemaining: result.daysRemaining,
-          displayStatus: result.displayStatus,
+          displayProfit,
+          displayCompletedDays: completedDays,
+          daysRemaining: remainingDays,
+          remainingDays,
+          progressPercent,
+          displayStatus,
         };
       })
       .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime());

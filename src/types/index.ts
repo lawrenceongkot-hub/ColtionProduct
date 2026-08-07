@@ -100,16 +100,20 @@ export interface InvestmentOrder {
   duration: number;
   totalReturn: number;
   purchaseDate: string;
-  lastProfitDate: string;
+  lastProfitDate: string | null;
   completedDays: number;
+  remainingDays?: number;
   currentProfit: number;
-  status: 'active' | 'completed';
+  completedAt?: string | null;
+  status: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
 }
 
 export interface OrderCalculated extends InvestmentOrder {
   displayProfit: number;
   displayCompletedDays: number;
   daysRemaining: number;
+  remainingDays?: number;
+  progressPercent?: number;
   displayStatus: 'active' | 'completed';
 }
 

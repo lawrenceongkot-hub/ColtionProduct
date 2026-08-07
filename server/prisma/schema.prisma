@@ -15,6 +15,7 @@ enum TransactionType {
   REFERRAL_COMMISSION
   WALLET_TRANSFER
   VIP_MATURITY_TRANSFER
+  INVESTMENT_COMPLETED
   WELCOME_BONUS
   AGENT_COMMISSION
   ADMIN_ADJUSTMENT
@@ -197,7 +198,9 @@ model InvestmentOrder {
   purchaseDate      DateTime    @default(now())
   lastProfitDate    DateTime?
   completedDays     Int         @default(0)
+  remainingDays     Int         @default(0)
   currentProfit     Float       @default(0)
+  completedAt       DateTime?
   user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
