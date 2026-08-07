@@ -5,6 +5,7 @@ export const AdminVerification: React.FC = React.memo(() => {
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [codeSearch, setCodeSearch] = useState('');
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -37,7 +38,15 @@ export const AdminVerification: React.FC = React.memo(() => {
     }
   };
 
-  const filtered = requests.filter(r => statusFilter === 'all' || r.status === statusFilter);
+  const filtered = requests.filter(r => {
+    if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+    if (codeSearch.trim()) {
+      const q = codeSearch.trim().toLowerCase();
+      const code = (r.verificationCode || '').toLowerCase();
+      if (!code.includes(q)) return false;
+    }
+    return true;
+  });
 
   const styles = {
     container: { padding: '24px', maxWidth: '1200px', margin: '0 auto', width: '100%' },
@@ -56,13 +65,25 @@ export const AdminVerification: React.FC = React.memo(() => {
     <div style={styles.container}>
       <div style={styles.header}>
         <h1 style={styles.title}>Verification Requests</h1>
-        <select style={styles.select} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-          <option value="all">All Status</option>
-          <option value="PENDING">Pending</option>
-          <option value="APPROVED">Approved</option>
-          <option value="REJECTED">Rejected</option>
-          <option value="NONE">Not Verified</option>
-        </select>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <input
+            style={{
+              padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)', color: '#FFFFFF', fontSize: '12px',
+              fontFamily: "'Inter', sans-serif", outline: 'none', width: '200px',
+            }}
+            placeholder="Search Verification Code..."
+            value={codeSearch}
+            onChange={e => setCodeSearch(e.target.value)}
+          />
+          <select style={styles.select} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <option value="all">All Status</option>
+            <option value="PENDING">Pending</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="NONE">Not Verified</option>
+          </select>
+        </div>
       </div>
 
       {actionMsg && (
