@@ -225,10 +225,11 @@ model EWallet {
   id                 String @id @default(cuid())
   userId             String
   provider           String
-  walletNumber       String @unique
+  walletNumber       String
   withdrawalPassword String
   user               User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([provider, walletNumber])
   @@index([userId])
 }
 
