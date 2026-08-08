@@ -181,10 +181,23 @@ model Withdrawal {
   providerReference String?
   providerStatus   String?
   providerMessage  String?
+  moxsysIdempotencyKey String?
   payoutRequestedAt DateTime?
   createdAt        DateTime          @default(now())
   completedAt      DateTime?
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payoutWebhookEvents PayoutWebhookEvent[]
+}
+
+model PayoutWebhookEvent {
+  id            String   @id @default(cuid())
+  eventId       String   @unique
+  withdrawalId  String
+  status        String
+  processedAt   DateTime @default(now())
+  withdrawal    Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Cascade)
+
+  @@index([withdrawalId])
 }
 
 model InvestmentOrder {

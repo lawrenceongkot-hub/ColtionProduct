@@ -1,5 +1,3 @@
-import prisma from '../db';
-
 /**
  * Moxsys Payout Service
  * Sends an approved withdrawal to the Moxsys payment provider as a payout.
@@ -26,6 +24,7 @@ export interface PayoutResult {
   providerReference?: string;
   providerStatus?: string;
   providerMessage?: string;
+  idempotencyKey?: string;
   raw?: string;
 }
 
@@ -77,7 +76,7 @@ export async function createMoxsysPayout(
     payment_method: paymentMethod,
     account_number: walletNumber,
     description: `Withdrawal ${reference}`,
-    callback_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/api/payments/moxsys/payout-webhook`,
+    callback_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/api/webhooks/moxsys/payout`,
     metadata: { reference, withdrawalId },
   };
 
@@ -112,7 +111,7 @@ export async function createMoxsysPayout(
         data?.raw ||
         `HTTP ${res.status}`;
       console.error(`[Payout] Failed for withdrawal=${withdrawalId}: status=${res.status} msg=${msg}`);
-      return { ok: false, providerStatus: `HTTP_${res.status}`, providerMessage: msg, raw: text.substring(0, 500) };
+      return { ok: false, providerStatus: `HTTP_${res.status}`, providerMessage: msg, idempotencyKey: uuid, raw: text.substring(0, 500) };
     }
 
     // Moxsys success response. Capture provider payout/reference ID.
@@ -120,9 +119,9 @@ export async function createMoxsysPayout(
     const providerStatus = String(data?.status || data?.data?.status || 'SUCCESS').toUpperCase();
 
     console.log(`[Payout] Success for withdrawal=${withdrawalId} payoutId=${payoutId} status=${providerStatus}`);
-    return { ok: true, providerReference: payoutId, providerStatus, providerMessage: data?.message, raw: text.substring(0, 500) };
+    return { ok: true, providerReference: payoutId, providerStatus, providerMessage: data?.message, idempotencyKey: uuid, raw: text.substring(0, 500) };
   } catch (e: any) {
     console.error(`[Payout] Network/API error for withdrawal=${withdrawalId}: ${e?.message || e}`);
-    return { ok: false, providerStatus: 'ERROR', providerMessage: e?.message || 'Payout request failed' };
+    return { ok: false, providerStatus: 'ERROR', providerMessage: e?.message || 'Payout request failed', idempotencyKey: uuid };
   }
 }

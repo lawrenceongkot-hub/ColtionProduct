@@ -17,6 +17,7 @@ import { ewalletRouter } from './routes/ewallet';
 import { dashboardRouter } from './routes/dashboard';
 import { adminAgentsRouter } from './routes/adminAgents';
 import { paymentRouter, paymentWebhookRouter } from './routes/payment';
+import { moxsysWebhookRouter } from './routes/moxsysWebhook';
 import { authenticateToken } from './middleware/auth';
 import { startDailyProfitScheduler } from './scheduler';
 import prisma from './db';
@@ -47,6 +48,9 @@ app.use('/api/settings', settingsRouter);
 
 // Payment webhook - PUBLIC (Moxsys calls this directly)
 app.use('/api/payments', paymentWebhookRouter);
+
+// Moxsys payout webhook - PUBLIC (Moxsys calls this directly)
+app.use('/api/webhooks/moxsys', moxsysWebhookRouter);
 
 // Payment routes - AUTHENTICATED (checkout, status)
 app.use('/api/payments', authenticateToken, paymentRouter);

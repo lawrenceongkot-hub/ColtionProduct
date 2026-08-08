@@ -422,6 +422,7 @@ adminRouter.put('/withdrawals/:id/approve', async (req: AuthRequest, res: Respon
         providerReference: payout.providerReference || null,
         providerStatus: payout.providerStatus || null,
         providerMessage: payout.providerMessage || null,
+        moxsysIdempotencyKey: payout.idempotencyKey || null,
         payoutRequestedAt: new Date(),
       },
     });

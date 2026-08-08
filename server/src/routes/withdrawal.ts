@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import prisma from '../db';
 import { AuthRequest } from '../middleware/auth';
+import { getMoxsysPayoutChannels } from '../services/moxsysChannels';
 
 export const withdrawalRouter = Router();
 
@@ -83,5 +84,15 @@ withdrawalRouter.get('/', async (req: AuthRequest, res: Response) => {
     res.json(withdrawals);
   } catch {
     res.status(500).json({ error: 'Failed to get withdrawals' });
+  }
+});
+
+// GET /api/withdrawals/channels - Available Moxsys payout channels
+withdrawalRouter.get('/channels', async (_req: AuthRequest, res: Response) => {
+  try {
+    const channels = await getMoxsysPayoutChannels();
+    res.json({ data: channels });
+  } catch {
+    res.status(500).json({ error: 'Failed to get payout channels' });
   }
 });
