@@ -29,6 +29,32 @@ export interface PayoutResult {
 }
 
 /**
+ * Map the platform's withdrawal method to a Moxsys payout channel.
+ * Moxsys payout channels are fetched from GET /payout-channels.
+ * The available types are: instapay, swiftpay, pesonet, crypto.
+ * Each channel has an id, type, bank_code, name, minimum_amount, maximum_amount.
+ *
+ * NOTE: GCash is NOT currently available as a Moxsys payout channel.
+ * The available e-wallet/instapay channels include: shopeepay, coins.ph, etc.
+ * This mapping uses the actual channel identifiers returned by Moxsys.
+ */
+function mapMethodToChannel(method: string): { type: string; bank_code: string } {
+  const m = (method || '').toLowerCase();
+  // Map known platform methods to Moxsys payout channel identifiers
+  const map: Record<string, { type: string; bank_code: string }> = {
+    'gcash': { type: 'instapay', bank_code: 'gcash' }, // GCash not in available channels - will be rejected by Moxsys
+    'maya': { type: 'instapay', bank_code: 'maya' },
+    'shopeepay': { type: 'instapay', bank_code: 'shopeepay' },
+    'gotyme': { type: 'instapay', bank_code: 'gotyme' },
+    'unionbank': { type: 'instapay', bank_code: 'unionbank' },
+    'bdo': { type: 'instapay', bank_code: 'bdo' },
+    'bpi': { type: 'instapay', bank_code: 'bpi' },
+    'coins.ph': { type: 'instapay', bank_code: 'coins.ph' },
+  };
+  return map[m] || { type: 'instapay', bank_code: m };
+}
+
+/**
  * Create a payout via Moxsys for an approved withdrawal.
  * NEVER logs secrets or PII (account numbers/names are NOT logged).
  */
@@ -37,7 +63,8 @@ export async function createMoxsysPayout(
   reference: string,
   amount: number,
   method: string,
-  walletNumber: string
+  walletNumber: string,
+  accountName?: string
 ): Promise<PayoutResult> {
   const moxsysApiKey = process.env.MOXSYS_API_KEY;
   const moxsysMode = process.env.MOXSYS_MODE || 'live';
@@ -50,16 +77,8 @@ export async function createMoxsysPayout(
   // Moxsys expects amount in pesos (whole number), matching the deposit flow.
   const payoutAmount = Math.round(amount);
 
-  const methodMap: Record<string, string> = {
-    'GCash': 'gcash',
-    'Maya': 'maya',
-    'QRPH': 'qrph',
-    'GrabPay': 'grabpay',
-    'GoTyme': 'gotyme',
-    'ShopeePay': 'shopeepay',
-    'UnionBank': 'unionbank',
-  };
-  const paymentMethod = methodMap[method] || 'gcash';
+  // Determine the Moxsys payout channel for this method
+  const channel = mapMethodToChannel(method);
 
   const uuid = (typeof crypto !== 'undefined' && (crypto as any).randomUUID)
     ? (crypto as any).randomUUID()
@@ -70,17 +89,18 @@ export async function createMoxsysPayout(
       });
 
   const payoutUrl = `https://platform.moxsys.io/api/v1/${moxsysMode}/payouts/create`;
+  // Moxsys payout API requires: id, amount, type, bank_code, account_name, account_number, callback_url
   const payload = {
-    external_id: reference,
+    id: reference, // internal withdrawal reference as the payout id
     amount: payoutAmount,
-    payment_method: paymentMethod,
+    type: channel.type,
+    bank_code: channel.bank_code,
+    account_name: accountName || 'Withdrawal Recipient',
     account_number: walletNumber,
-    description: `Withdrawal ${reference}`,
     callback_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/api/webhooks/moxsys/payout`,
-    metadata: { reference, withdrawalId },
   };
 
-  console.log(`[Payout] Creating payout for withdrawal=${withdrawalId} ref=${reference} amount=${payoutAmount} method=${paymentMethod}`);
+  console.log(`[Payout] Creating payout for withdrawal=${withdrawalId} ref=${reference} amount=${payoutAmount} type=${channel.type} bank_code=${channel.bank_code}`);
   // NEVER log walletNumber or account name. Log only the non-sensitive shape.
   console.log(`[Payout] Endpoint=${payoutUrl} mode=${moxsysMode} apiKey=${maskSecret(moxsysApiKey)}`);
 

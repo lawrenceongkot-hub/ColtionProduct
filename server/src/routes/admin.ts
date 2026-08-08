@@ -423,7 +423,8 @@ adminRouter.put('/withdrawals/:id/approve', async (req: AuthRequest, res: Respon
       withdrawal.reference,
       withdrawal.netAmount, // NET amount (₱306), NOT the requested ₱340
       withdrawal.method,
-      withdrawal.walletNumber
+      withdrawal.walletNumber,
+      withdrawal.user?.fullName || ''
     );
     console.log(`[Withdrawal Approval] Payout response received id=${id} ok=${payout.ok} providerReference=${payout.providerReference} providerStatus=${payout.providerStatus} providerMessage=${payout.providerMessage}`);
 
