@@ -15,10 +15,36 @@ import { settingsEnforcer } from '../services/settingsEnforcer';
 
 type Section = 'home' | 'order' | 'invite' | 'account';
 
+// Map URL paths to sections for route persistence
+const PATH_TO_SECTION: Record<string, Section> = {
+  '/': 'home',
+  '/home': 'home',
+  '/order': 'order',
+  '/my-investments': 'order',
+  '/invite': 'invite',
+  '/account': 'account',
+  '/wallet': 'account',
+  '/promotions': 'invite',
+  '/games': 'home',
+};
+
+const SECTION_TO_PATH: Record<Section, string> = {
+  home: '/',
+  order: '/my-investments',
+  invite: '/invite',
+  account: '/account',
+};
+
+function getSectionFromPath(): Section {
+  if (typeof window === 'undefined') return 'home';
+  const path = window.location.pathname;
+  return PATH_TO_SECTION[path] || 'home';
+}
+
 export const AppLayout: React.FC = React.memo(() => {
   const { logout } = useAuth();
   const responsive = useResponsive();
-  const [activeSection, setActiveSection] = useState<Section>('home');
+  const [activeSection, setActiveSection] = useState<Section>(getSectionFromPath);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
 
@@ -35,12 +61,27 @@ export const AppLayout: React.FC = React.memo(() => {
     checkMaintenance();
   }, []);
 
+  // Sync section with URL on browser back/forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveSection(getSectionFromPath());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   if (maintenanceMode) {
     return <MaintenancePage />;
   }
 
   const handleSectionChange = useCallback((section: string) => {
-    setActiveSection(section as Section);
+    const s = section as Section;
+    setActiveSection(s);
+    // Update URL without full page reload so refresh persists the section
+    const path = SECTION_TO_PATH[s];
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path);
+    }
   }, []);
 
   const handleShowLogout = useCallback(() => {

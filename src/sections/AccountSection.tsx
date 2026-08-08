@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { colors, typography, borderRadius, shadows } from '../theme';
@@ -11,7 +12,6 @@ import { DepositScreen } from '../screens/DepositScreen';
 import { WithdrawScreen } from '../screens/WithdrawScreen';
 import { AgentSection } from './AgentSection';
 import { verificationService } from '../services/verificationService';
-import { orderService } from '../services/orderService';
 import { FORMAT_CURRENCY } from '../constants';
 import { ErrorBoundary } from '../admin/components/ErrorBoundary';
 
@@ -27,10 +27,12 @@ export const AccountSection: React.FC = React.memo(() => {
 
   useEffect(() => {
     if (user) {
-      walletService.getBalances().then(w => setBalances(w));
+      walletService.getBalances().then(w => {
+        setBalances(w);
+        // Ongoing Wallet = accumulated profits from active VIP plans (from backend /wallet API)
+        setOngoingBalance(w.ongoing);
+      });
       verificationService.isVerified(user.id).then(v => setIsVerified(v));
-      // Ongoing Wallet = accumulated profits from active VIP plans
-      setOngoingBalance(orderService.getOngoingWalletBalance(user.id));
     }
   }, [user]);
 

@@ -15,11 +15,23 @@ import { settingsEnforcer } from '../services/settingsEnforcer';
 type Screen = 'splash' | 'loading' | 'auth' | 'login' | 'register' | 'home';
 type Modal = 'privacy' | 'terms' | null;
 
+// Map URL paths to auth screens for route persistence
+const AUTH_PATH_TO_SCREEN: Record<string, Screen> = {
+  '/login': 'login',
+  '/register': 'register',
+  '/auth': 'auth',
+};
+
+function getInitialScreen(isAuthenticated: boolean): Screen {
+  if (isAuthenticated) return 'home';
+  if (typeof window === 'undefined') return 'splash';
+  const path = window.location.pathname;
+  return AUTH_PATH_TO_SCREEN[path] || 'splash';
+}
+
 export const OnboardingFlow: React.FC = React.memo(() => {
   const { isAuthenticated, isLoading } = useAuth();
-  const [currentScreen, setCurrentScreen] = useState<Screen>(() => {
-    return isAuthenticated ? 'home' : 'splash';
-  });
+  const [currentScreen, setCurrentScreen] = useState<Screen>(() => getInitialScreen(isAuthenticated));
   const [activeModal, setActiveModal] = useState<Modal>(null);
   const [maintenanceBlocked, setMaintenanceBlocked] = useState<string | null>(null);
 
@@ -33,7 +45,13 @@ export const OnboardingFlow: React.FC = React.memo(() => {
           if (result.blocked) {
             setMaintenanceBlocked(result.message);
           } else {
-            setCurrentScreen('splash');
+            // Preserve current screen from URL if on a known auth route
+            const pathScreen = getInitialScreen(false);
+            if (pathScreen !== 'splash') {
+              setCurrentScreen(pathScreen);
+            } else {
+              setCurrentScreen('splash');
+            }
           }
         });
       }
@@ -53,10 +71,18 @@ export const OnboardingFlow: React.FC = React.memo(() => {
       setActiveModal(null);
     }
     setCurrentScreen(screen);
+    // Update URL for route persistence
+    const path = screen === 'login' ? '/login' : screen === 'register' ? '/register' : '/auth';
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path);
+    }
   }, []);
 
   const handleBack = useCallback(() => {
     setCurrentScreen('auth');
+    if (window.location.pathname !== '/auth') {
+      window.history.pushState({}, '', '/auth');
+    }
   }, []);
 
   const openPrivacy = useCallback(() => setActiveModal('privacy'), []);

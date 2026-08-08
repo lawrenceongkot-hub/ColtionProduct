@@ -1,7 +1,8 @@
 /**
  * API Client - Centralized HTTP client for all backend API calls.
  * Handles JWT token storage, auto-refresh, and consistent error handling.
- * Tokens are stored in memory only (sessionStorage for page refreshes).
+ * Tokens are stored in localStorage to persist across browser restarts
+ * (7-day session persistence per requirement).
  * Uses Vite proxy in development, direct URL in production.
  */
 
@@ -10,11 +11,11 @@ const API_BASE = import.meta.env.VITE_API_URL || '/api';
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
 
-// Initialize from sessionStorage (survives page refresh, not cross-tab)
+// Initialize from localStorage (survives page refresh AND browser close/restart)
 function initTokens(): void {
   try {
-    accessToken = sessionStorage.getItem('coltion_access_token');
-    refreshToken = sessionStorage.getItem('coltion_refresh_token');
+    accessToken = localStorage.getItem('coltion_access_token');
+    refreshToken = localStorage.getItem('coltion_refresh_token');
   } catch {
     accessToken = null;
     refreshToken = null;
@@ -26,8 +27,8 @@ export function setTokens(access: string, refresh: string): void {
   accessToken = access;
   refreshToken = refresh;
   try {
-    sessionStorage.setItem('coltion_access_token', access);
-    sessionStorage.setItem('coltion_refresh_token', refresh);
+    localStorage.setItem('coltion_access_token', access);
+    localStorage.setItem('coltion_refresh_token', refresh);
   } catch { /* storage full or unavailable */ }
 }
 
@@ -35,8 +36,8 @@ export function clearTokens(): void {
   accessToken = null;
   refreshToken = null;
   try {
-    sessionStorage.removeItem('coltion_access_token');
-    sessionStorage.removeItem('coltion_refresh_token');
+    localStorage.removeItem('coltion_access_token');
+    localStorage.removeItem('coltion_refresh_token');
   } catch { /* silent */ }
 }
 
