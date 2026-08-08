@@ -388,25 +388,36 @@ adminRouter.get('/withdrawals', async (_req: AuthRequest, res: Response) => {
 adminRouter.put('/withdrawals/:id/approve', async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
+    console.log(`[Withdrawal Approval] START id=${id}`);
     const withdrawal = await prisma.withdrawal.findUnique({
       where: { id },
       include: { user: { select: { fullName: true, email: true, phone: true, ewallets: { select: { provider: true, walletNumber: true } } } } },
     });
-    if (!withdrawal) return res.status(404).json({ error: 'Withdrawal not found' });
-    if (withdrawal.status !== 'PENDING') return res.status(400).json({ error: 'Already processed' });
+    if (!withdrawal) {
+      console.log(`[Withdrawal Approval] Withdrawal not found id=${id}`);
+      return res.status(404).json({ error: 'Withdrawal not found' });
+    }
+    console.log(`[Withdrawal Approval] loaded id=${id} reference=${withdrawal.reference} status=${withdrawal.status} providerReference=${withdrawal.providerReference} amount=${withdrawal.amount} netAmount=${withdrawal.netAmount} method=${withdrawal.method}`);
+    if (withdrawal.status !== 'PENDING') {
+      console.log(`[Withdrawal Approval] Blocked: status ${withdrawal.status} != PENDING id=${id}`);
+      return res.status(400).json({ error: 'Already processed' });
+    }
 
     // DUPLICATE PAYOUT PROTECTION: If a provider reference already exists, do NOT send again.
     if (withdrawal.providerReference) {
+      console.log(`[Withdrawal Approval] Blocked: providerReference already set id=${id}`);
       return res.status(400).json({ error: 'Payout already requested for this withdrawal' });
     }
 
     // Verify required user/payment-account information exists.
     const boundWallet = withdrawal.user?.ewallets?.find(e => e.walletNumber === withdrawal.walletNumber);
     if (!withdrawal.user?.fullName || !withdrawal.walletNumber) {
+      console.log(`[Withdrawal Approval] Blocked: missing user/payment info id=${id}`);
       return res.status(400).json({ error: 'Required user/payment-account information is missing' });
     }
 
     // Send exactly ONE payout request to the provider with the NET amount.
+    console.log(`[Withdrawal Approval] Calling createMoxsysPayout id=${id} reference=${withdrawal.reference} netAmount=${withdrawal.netAmount} method=${withdrawal.method}`);
     const payout = await createMoxsysPayout(
       withdrawal.id,
       withdrawal.reference,
@@ -414,6 +425,7 @@ adminRouter.put('/withdrawals/:id/approve', async (req: AuthRequest, res: Respon
       withdrawal.method,
       withdrawal.walletNumber
     );
+    console.log(`[Withdrawal Approval] Payout response received id=${id} ok=${payout.ok} providerReference=${payout.providerReference} providerStatus=${payout.providerStatus} providerMessage=${payout.providerMessage}`);
 
     // Store the provider response regardless of outcome.
     await prisma.withdrawal.update({

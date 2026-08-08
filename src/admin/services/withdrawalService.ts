@@ -69,7 +69,8 @@ export const withdrawalService = {
     try {
       await adminApi.approveWithdrawal(id);
       return true;
-    } catch {
+    } catch (e: any) {
+      console.error(`[Withdrawal Approve] Failed id=${id} error=${e?.message}`);
       return false;
     }
   },
