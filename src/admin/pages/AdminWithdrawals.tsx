@@ -277,7 +277,7 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
                   {fmtDate(w.createdAt)}
                 </td>
                 <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.4)', fontSize: '10px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {w.accountNumber || w.walletNumber || '—'}
+                  {w.accountProvider ? `${w.accountProvider} · ` : ''}{w.accountNumber || w.walletNumber || '—'}
                 </td>
                 <td style={{ padding: '10px 12px' }}>
                   <button onClick={() => openDetails(w)}
@@ -348,6 +348,7 @@ export const AdminWithdrawals: React.FC = React.memo(() => {
                     { label: 'Transaction ID', value: selectedW.id },
                     { label: 'Reference Number', value: selectedW.reference },
                     { label: 'Withdrawal Method', value: selectedW.method },
+                    { label: 'Account Provider', value: selectedW.accountProvider || selectedW.method || '-' },
                     { label: 'Account Name', value: selectedW.accountName },
                     { label: 'Account Number', value: selectedW.accountNumber },
                     { label: 'Requested Amount', value: `₱${fmt(selectedW.amount)}` },

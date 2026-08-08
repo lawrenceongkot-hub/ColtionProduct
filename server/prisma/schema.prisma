@@ -178,6 +178,10 @@ model Withdrawal {
   status           TransactionStatus @default(PENDING)
   approvedBy       String?
   rejectionReason  String?
+  providerReference String?
+  providerStatus   String?
+  providerMessage  String?
+  payoutRequestedAt DateTime?
   createdAt        DateTime          @default(now())
   completedAt      DateTime?
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -115,12 +115,12 @@ export const AdminAgents: React.FC = React.memo(() => {
     badge: (color: string) => ({
       display: 'inline-block', padding: '3px 8px', borderRadius: '6px',
       fontSize: '11px', fontWeight: 600, fontFamily: "'Inter', sans-serif",
-      background: `${color}15`, color, border: `1px solid ${color}30`,
+      background: color + '15', color, border: '1px solid ' + color + '30',
     }),
     actionBtn: (color: string) => ({
       padding: '6px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
       fontSize: '11px', fontWeight: 600, fontFamily: "'Inter', sans-serif",
-      background: `${color}15`, color,
+      background: color + '15', color,
     } as React.CSSProperties),
     modalOverlay: {
       position: 'fixed' as const, inset: 0, background: 'rgba(0,0,0,0.7)',
@@ -154,7 +154,7 @@ export const AdminAgents: React.FC = React.memo(() => {
         <div style={{
           padding: '12px 16px', borderRadius: '8px', marginBottom: '16px',
           background: actionResult.type === 'success' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
-          border: `1px solid ${actionResult.type === 'success' ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`,
+          border: '1px solid ' + (actionResult.type === 'success' ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'),
           color: actionResult.type === 'success' ? '#10B981' : '#EF4444',
           fontSize: '13px', fontFamily: "'Inter', sans-serif",
         }}>
@@ -191,7 +191,7 @@ export const AdminAgents: React.FC = React.memo(() => {
                   <td style={styles.td}><span style={{ fontFamily: "'Courier New', monospace", color: '#60A5FA' }}>{agent.displayId || agent.user?.displayId || '—'}</span></td>
                   <td style={{ ...styles.td, fontWeight: 500, color: '#FFFFFF' }}>{agent.user?.fullName || agent.fullName || '—'}</td>
                   <td style={styles.td}>{agent.user?.email || agent.email || '—'}</td>
-                  <td style={styles.td}>{agent.user?.phone || '—'}</td>
+                  <td style={styles.td}>{agent.user?.phone || agent.phone || '—'}</td>
                   <td style={styles.td}><span style={{ fontFamily: "'Courier New', monospace", color: '#60A5FA' }}>{agent.user?.invitationCode || agent.agentCode || '—'}</span></td>
                   <td style={styles.td}>{agent.totalReferrals ?? agent.referrals?.length ?? 0}</td>
                   <td style={styles.td}>{agent.usersWithDeposit ?? agent.qualifiedDeposits ?? 0}</td>
@@ -204,11 +204,11 @@ export const AdminAgents: React.FC = React.memo(() => {
                     </span>
                   </td>
                   <td style={styles.td}>
-                    <span style={styles.badge(verificationLabel(agent.user?.verificationStatus).color)}>
-                      {verificationLabel(agent.user?.verificationStatus).text}
+                    <span style={styles.badge(verificationLabel(agent.verificationStatus || agent.user?.verificationStatus).color)}>
+                      {verificationLabel(agent.verificationStatus || agent.user?.verificationStatus).text}
                     </span>
                   </td>
-                  <td style={styles.td}>{formatDate(agent.user?.createdAt)}</td>
+                  <td style={styles.td}>{formatDate(agent.registrationDate || agent.user?.createdAt)}</td>
                   <td style={styles.td}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '80px' }}>
                       <button style={styles.actionBtn('#0066FF')} onClick={() => handleViewProfile(agent.id)}>View</button>
@@ -295,7 +295,7 @@ export const AdminAgents: React.FC = React.memo(() => {
                       <>
                         <div style={styles.statCard}>
                           <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontFamily: "'Inter', sans-serif", marginBottom: '4px' }}>Total Commission</p>
-                          <p style={{ fontSize: '14px', fontWeight: 600, color: '#10B981', fontFamily: "'Inter', sans-serif" }}>₱{(agentDetail.stats.totalDepositsGenerated || 0).toLocaleString()}</p>
+                          <p style={{ fontSize: '14px', fontWeight: 600, color: '#10B981', fontFamily: "'Inter', sans-serif" }}>₱{(agentDetail.totalCommission || 0).toLocaleString()}</p>
                         </div>
                         <div style={styles.statCard}>
                           <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontFamily: "'Inter', sans-serif", marginBottom: '4px' }}>Conversion Rate</p>
@@ -369,7 +369,7 @@ export const AdminAgents: React.FC = React.memo(() => {
                     </div>
                     <div style={styles.statCard}>
                       <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Pending Commission</p>
-                      <p style={{ fontSize: '16px', fontWeight: 700, color: '#F59E0B' }}>{formatCurrency(agentDetail.pendingCommission)}</p>
+                      <p style={{ fontSize: '16px', fontWeight: 700, color: '#F59E0B' }}>{formatCurrency(agentDetail.stats?.pendingCommission)}</p>
                     </div>
                     <div style={styles.statCard}>
                       <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Total Commission Earned</p>
@@ -572,10 +572,10 @@ export const AdminAgents: React.FC = React.memo(() => {
                               <td style={styles.td}>{ref.fullName}</td>
                               <td style={styles.td}>{ref.email}</td>
                               <td style={styles.td}>{formatDate(ref.registeredDate)}</td>
-                              <td style={styles.td}>{ref.firstDeposit ? `₱${ref.firstDeposit}` : '—'}</td>
+                              <td style={styles.td}><span style={{ fontFamily: "'Courier New', monospace", color: '#10B981' }}>{ref.totalApprovedDeposits ? `₱${ref.totalApprovedDeposits.toLocaleString()}` : '—'}</span></td>
                               <td style={styles.td}>
-                                <span style={styles.badge(ref.status === 'COMMISSION_PAID' ? '#10B981' : '#F59E0B')}>
-                                  {ref.status === 'COMMISSION_PAID' ? 'Paid' : 'Waiting'}
+                                <span style={styles.badge(ref.displayStatus === 'qualified' ? '#10B981' : '#F59E0B')}>
+                                  {ref.displayStatus === 'qualified' ? 'Qualified' : 'Waiting Deposit'}
                                 </span>
                               </td>
                             </tr>
@@ -648,12 +648,12 @@ export const AdminAgents: React.FC = React.memo(() => {
                         <div key={ref.id} style={{
                           padding: '10px 16px', borderRadius: '8px',
                           background: ref.status === 'COMMISSION_PAID' ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
-                          border: `1px solid ${ref.status === 'COMMISSION_PAID' ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}`,
+                          border: '1px solid ' + (ref.status === 'COMMISSION_PAID' ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'),
                           textAlign: 'center', minWidth: '140px',
                         }}>
                           <p style={{ color: '#FFFFFF', fontSize: '12px', fontWeight: 500, fontFamily: "'Inter', sans-serif" }}>{ref.fullName}</p>
                           <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px', fontFamily: "'Inter', sans-serif", marginTop: '2px' }}>
-                            {ref.firstDeposit ? `₱${ref.firstDeposit}` : 'No deposit'}
+                            {ref.totalApprovedDeposits ? `₱${ref.totalApprovedDeposits.toLocaleString()}` : 'No deposit'}
                           </p>
                         </div>
                       ))}

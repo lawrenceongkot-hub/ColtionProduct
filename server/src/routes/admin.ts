@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import prisma from '../db';
 import { AuthRequest, authenticateToken, requireAdmin } from '../middleware/auth';
 import { processReferralCommission } from '../services/referralCommission';
+import { createMoxsysPayout } from '../services/payoutService';
 
 export const adminRouter = Router();
 
@@ -344,10 +345,42 @@ adminRouter.get('/withdrawals', async (_req: AuthRequest, res: Response) => {
   try {
     const withdrawals = await prisma.withdrawal.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { user: { select: { fullName: true, email: true } } },
+      include: {
+        user: {
+          select: {
+            id: true,
+            displayId: true,
+            fullName: true,
+            email: true,
+            phone: true,
+            status: true,
+            ewallets: { select: { id: true, provider: true, walletNumber: true } },
+          },
+        },
+      },
     });
-    res.json(withdrawals);
-  } catch {
+
+    // Enrich with flat fields the Admin UI expects + the bound payment account
+    // (matched by walletNumber on the withdrawal against the user's e-wallets)
+    const enriched = withdrawals.map(w => {
+      const boundWallet = w.user?.ewallets?.find(e => e.walletNumber === w.walletNumber) || null;
+      return {
+        ...w,
+        userFullName: w.user?.fullName || '',
+        userEmail: w.user?.email || '',
+        userPhone: w.user?.phone || '',
+        userStatus: w.user?.status || '',
+        userDisplayId: w.user?.displayId || '',
+        accountName: w.user?.fullName || '',
+        accountNumber: w.walletNumber || '',
+        accountProvider: boundWallet?.provider || w.method || '',
+        accountId: boundWallet?.id || '',
+      };
+    });
+
+    res.json(enriched);
+  } catch (e: any) {
+    console.error('Get withdrawals error:', e?.message || e);
     res.status(500).json({ error: 'Failed to get withdrawals' });
   }
 });
@@ -355,24 +388,68 @@ adminRouter.get('/withdrawals', async (_req: AuthRequest, res: Response) => {
 adminRouter.put('/withdrawals/:id/approve', async (req: AuthRequest, res: Response) => {
   try {
     const id = req.params.id as string;
-    const withdrawal = await prisma.withdrawal.findUnique({ where: { id } });
+    const withdrawal = await prisma.withdrawal.findUnique({
+      where: { id },
+      include: { user: { select: { fullName: true, email: true, phone: true, ewallets: { select: { provider: true, walletNumber: true } } } } },
+    });
     if (!withdrawal) return res.status(404).json({ error: 'Withdrawal not found' });
     if (withdrawal.status !== 'PENDING') return res.status(400).json({ error: 'Already processed' });
 
-    // ISSUE 5: Gross amount already deducted at request time. Only update status.
-    await prisma.$transaction(async (tx) => {
-      await tx.withdrawal.update({
-        where: { id },
-        data: { status: 'SUCCESS', completedAt: new Date(), approvedBy: 'Admin' },
-      });
-      await tx.transaction.updateMany({
-        where: { reference: withdrawal.reference },
-        data: { status: 'SUCCESS', completedAt: new Date() },
-      });
+    // DUPLICATE PAYOUT PROTECTION: If a provider reference already exists, do NOT send again.
+    if (withdrawal.providerReference) {
+      return res.status(400).json({ error: 'Payout already requested for this withdrawal' });
+    }
+
+    // Verify required user/payment-account information exists.
+    const boundWallet = withdrawal.user?.ewallets?.find(e => e.walletNumber === withdrawal.walletNumber);
+    if (!withdrawal.user?.fullName || !withdrawal.walletNumber) {
+      return res.status(400).json({ error: 'Required user/payment-account information is missing' });
+    }
+
+    // Send exactly ONE payout request to the provider with the NET amount.
+    const payout = await createMoxsysPayout(
+      withdrawal.id,
+      withdrawal.reference,
+      withdrawal.netAmount, // NET amount (₱306), NOT the requested ₱340
+      withdrawal.method,
+      withdrawal.walletNumber
+    );
+
+    // Store the provider response regardless of outcome.
+    await prisma.withdrawal.update({
+      where: { id },
+      data: {
+        providerReference: payout.providerReference || null,
+        providerStatus: payout.providerStatus || null,
+        providerMessage: payout.providerMessage || null,
+        payoutRequestedAt: new Date(),
+      },
     });
 
-    res.json({ success: true });
-  } catch {
+    // Only mark SUCCESS if the provider confirmed the payout.
+    if (payout.ok) {
+      await prisma.$transaction(async (tx) => {
+        await tx.withdrawal.update({
+          where: { id },
+          data: { status: 'SUCCESS', completedAt: new Date(), approvedBy: 'Admin' },
+        });
+        await tx.transaction.updateMany({
+          where: { reference: withdrawal.reference },
+          data: { status: 'SUCCESS', completedAt: new Date() },
+        });
+      });
+      return res.json({ success: true, providerReference: payout.providerReference, providerStatus: payout.providerStatus });
+    }
+
+    // Provider rejected/failed. Keep the withdrawal PENDING (not falsely marked SUCCESS).
+    console.error(`Withdrawal payout failed: reference=${withdrawal.reference} providerStatus=${payout.providerStatus} providerMessage=${payout.providerMessage}`);
+    return res.status(502).json({
+      error: 'Payout request failed. Withdrawal remains pending.',
+      providerStatus: payout.providerStatus,
+      providerMessage: payout.providerMessage,
+    });
+  } catch (e: any) {
+    console.error('Approve withdrawal error:', e?.message || e);
     res.status(500).json({ error: 'Failed to approve withdrawal' });
   }
 });

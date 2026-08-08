@@ -10,6 +10,7 @@ export interface WithdrawalRecord {
   method: string;
   accountName: string;
   accountNumber: string;
+  accountProvider: string;
   status: string;
   createdAt: string;
   approvedAt: string | null;
@@ -35,7 +36,22 @@ function normalizeStatus(status: string | undefined | null): string {
 
 function normalizeWithdrawal(w: any): any {
   if (!w) return w;
-  return { ...w, status: normalizeStatus(w.status) };
+  const user = w.user || {};
+  return {
+    ...w,
+    status: normalizeStatus(w.status),
+    // Flat fields the Admin UI reads. Backend now provides these directly,
+    // but fall back to the nested user object for robustness.
+    userFullName: w.userFullName || user.fullName || '',
+    userEmail: w.userEmail || user.email || '',
+    userPhone: w.userPhone || user.phone || '',
+    userStatus: w.userStatus || user.status || '',
+    userDisplayId: w.userDisplayId || user.displayId || '',
+    accountName: w.accountName || user.fullName || '',
+    accountNumber: w.accountNumber || w.walletNumber || '',
+    accountProvider: w.accountProvider || w.method || '',
+    accountId: w.accountId || '',
+  };
 }
 
 export const withdrawalService = {

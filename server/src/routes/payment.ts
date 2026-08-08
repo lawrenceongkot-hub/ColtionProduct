@@ -213,6 +213,87 @@ paymentRouter.get('/moxsys/status/:ref', async (req: AuthRequest, res: Response)
   }
 });
 
+// POST /api/payments/moxsys/payout-webhook - Moxsys callback for payout status updates
+// This is PUBLIC (no auth) because Moxsys calls this URL directly.
+// Idempotency: only process if withdrawal is PENDING and has a providerReference.
+paymentWebhookRouter.post('/moxsys/payout-webhook', async (req: Request, res: Response) => {
+  try {
+    const event = req.body;
+    const status = (event?.status || '').toLowerCase();
+    const externalId = event?.external_id || event?.reference || '';
+    const payoutId = event?.payout_id || event?.id || event?.data?.payout_id || event?.data?.id || '';
+
+    console.log('[Moxsys Payout Webhook] Received:', JSON.stringify(event));
+
+    if (!externalId) {
+      return res.json({ status: 'received', error: 'Missing external_id' });
+    }
+
+    const withdrawal = await prisma.withdrawal.findFirst({ where: { reference: externalId } });
+    if (!withdrawal) {
+      console.warn('[Moxsys Payout Webhook] Withdrawal not found for reference:', externalId);
+      return res.status(404).json({ error: 'Withdrawal not found' });
+    }
+
+    // Only process if still PENDING (idempotency - do not re-process completed/failed)
+    if (withdrawal.status !== 'PENDING') {
+      return res.json({ status: 'received', withdrawalStatus: withdrawal.status });
+    }
+
+    let mappedStatus: string | null = null;
+    if (status === 'paid' || status === 'success' || status === 'completed' || status === 'sent') {
+      mappedStatus = 'SUCCESS';
+    } else if (status === 'failed' || status === 'cancelled' || status === 'canceled' || status === 'expired' || status === 'rejected') {
+      mappedStatus = 'FAILED';
+    }
+
+    if (!mappedStatus) {
+      console.log('[Moxsys Payout Webhook] Unknown status:', status, 'for', externalId);
+      return res.json({ status: 'received' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.withdrawal.update({
+        where: { id: withdrawal.id },
+        data: {
+          status: mappedStatus as any,
+          completedAt: mappedStatus === 'SUCCESS' ? new Date() : withdrawal.completedAt || new Date(),
+          approvedBy: mappedStatus === 'SUCCESS' ? 'Moxsys' : withdrawal.approvedBy || 'Moxsys',
+          providerReference: payoutId || withdrawal.providerReference,
+          providerStatus: status,
+          providerMessage: event?.message || event?.reason || null,
+          rejectionReason: mappedStatus === 'FAILED' ? (event?.reason || event?.message || `Payout ${status} by provider`) : withdrawal.rejectionReason,
+        },
+      });
+
+      await tx.transaction.updateMany({
+        where: { reference: withdrawal.reference },
+        data: { status: mappedStatus as any, completedAt: new Date() },
+      });
+
+      if (mappedStatus === 'SUCCESS') {
+        await tx.notification.create({
+          data: { userId: withdrawal.userId, type: 'WITHDRAWAL_COMPLETED', message: `Your withdrawal of ₱${withdrawal.netAmount.toLocaleString()} has been completed.`, read: false },
+        });
+      } else {
+        // Refund the gross amount back to the wallet on provider failure
+        await tx.wallet.update({
+          where: { userId: withdrawal.userId },
+          data: { main: { increment: withdrawal.amount } },
+        });
+        await tx.notification.create({
+          data: { userId: withdrawal.userId, type: 'WITHDRAWAL_FAILED', message: `Your withdrawal of ₱${withdrawal.amount.toLocaleString()} failed. Amount refunded.`, read: false },
+        });
+      }
+    });
+
+    return res.json({ status: 'received', withdrawalStatus: mappedStatus, reference: externalId });
+  } catch (e: any) {
+    console.error('Moxsys payout webhook error:', e?.message || e);
+    return res.status(500).json({ error: 'Payout webhook processing failed' });
+  }
+});
+
 // POST /api/payments/moxsys/webhook - Moxsys callback for payment status updates
 // This is PUBLIC (no auth) because Moxsys calls this URL directly.
 // Idempotency: only process if deposit.status === 'PENDING'
