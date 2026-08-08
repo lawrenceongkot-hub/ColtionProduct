@@ -391,7 +391,7 @@ adminRouter.put('/withdrawals/:id/approve', async (req: AuthRequest, res: Respon
     console.log(`[Withdrawal Approval] START id=${id}`);
     const withdrawal = await prisma.withdrawal.findUnique({
       where: { id },
-      include: { user: { select: { fullName: true, email: true, phone: true, ewallets: { select: { provider: true, walletNumber: true } } } } },
+      include: { user: { select: { fullName: true, email: true, phone: true, isDemo: true, ewallets: { select: { provider: true, walletNumber: true } } } } },
     });
     if (!withdrawal) {
       console.log(`[Withdrawal Approval] Withdrawal not found id=${id}`);
@@ -414,6 +414,37 @@ adminRouter.put('/withdrawals/:id/approve', async (req: AuthRequest, res: Respon
     if (!withdrawal.user?.fullName || !withdrawal.walletNumber) {
       console.log(`[Withdrawal Approval] Blocked: missing user/payment info id=${id}`);
       return res.status(400).json({ error: 'Required user/payment-account information is missing' });
+    }
+
+    // ============================================================
+    // DEMO ACCOUNT PAYOUT SAFETY GUARD
+    // Demo accounts must NEVER trigger a real Moxsys payout.
+    // The backend determines demo status from the authoritative
+    // database field User.isDemo. This cannot be bypassed by the frontend.
+    // ============================================================
+    if (withdrawal.user?.isDemo) {
+      console.log(`[DEMO PAYOUT BLOCKED] withdrawal=${withdrawal.id} reference=${withdrawal.reference} amount=${withdrawal.amount} netAmount=${withdrawal.netAmount} method=${withdrawal.method}`);
+      console.log(`[DEMO PAYOUT BLOCKED] Demo account detected. Moxsys payout NOT called. Simulating demo completion.`);
+      // Simulate the payout internally for demonstration purposes.
+      // NO real Moxsys request. NO real money transfer.
+      await prisma.$transaction(async (tx) => {
+        await tx.withdrawal.update({
+          where: { id },
+          data: {
+            status: 'SUCCESS',
+            completedAt: new Date(),
+            approvedBy: 'Admin (DEMO)',
+            providerStatus: 'DEMO_SIMULATED',
+            providerMessage: 'Demo account - payout simulated, no real money sent',
+            payoutRequestedAt: new Date(),
+          },
+        });
+        await tx.transaction.updateMany({
+          where: { reference: withdrawal.reference },
+          data: { status: 'SUCCESS', completedAt: new Date() },
+        });
+      });
+      return res.json({ success: true, demo: true, message: 'Demo withdrawal completed (simulated, no real payout sent)' });
     }
 
     // Send exactly ONE payout request to the provider with the NET amount.
