@@ -3,18 +3,31 @@ import prisma from './db';
 // ============================================================
 // DAILY PROFIT SCHEDULER
 // Processes ALL ACTIVE investment orders automatically.
-// Every ACTIVE order earns daily profit ONCE per day:
+// Every ACTIVE order earns daily profit ONCE per calendar day:
 //  - Creates ONE DAILY_PROFIT transaction per day
 //  - Credits Ongoing Wallet ONLY (never Main Wallet)
 //  - Updates Investment Progress (completedDays, remainingDays)
 //  - Updates Current Accumulated Profit
 //  - Updates lastProfitDate
 // Prevents duplicate/skipped days using lastProfitDate.
+//
+// BUSINESS RULE: Daily profit is generated at 12:00 AM platform time.
+// An order is eligible for a daily profit when the current calendar day
+// is different from the last processed calendar day (lastProfitDate).
+// This means an order purchased on Day X receives its first profit
+// at the next 12:00 AM processing cycle (Day X+1).
 // ============================================================
+
+// Helper: Get the calendar day key (YYYY-MM-DD) for a date
+function getDayKey(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
 
 export async function processDailyProfits(): Promise<void> {
   try {
     const now = new Date();
+    const todayKey = getDayKey(now);
+
     // Fetch ALL ACTIVE orders across ALL users (exclude demo users)
     const activeOrders = await prisma.investmentOrder.findMany({
       where: { status: 'ACTIVE', user: { isDemo: false } },
@@ -22,55 +35,59 @@ export async function processDailyProfits(): Promise<void> {
     });
 
     for (const order of activeOrders) {
-      const start = order.lastProfitDate || order.purchaseDate;
-      const daysElapsed = Math.floor((now.getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24));
+      // Determine the last processed day
+      // If lastProfitDate is null, the order has never received profit.
+      // The first profit is due on the first calendar day AFTER purchaseDate.
+      const lastProcessedDate = order.lastProfitDate || order.purchaseDate;
+      const lastProcessedDayKey = getDayKey(lastProcessedDate);
+      const purchaseDayKey = getDayKey(order.purchaseDate);
 
-      if (daysElapsed >= 1) {
-        // Process ONE day at a time (no bulk catch-up, no duplicates)
-        const profitDays = Math.min(daysElapsed, order.duration - order.completedDays);
+      // Check if the order is eligible for a new daily profit:
+      // 1. The current calendar day is different from the last processed day
+      // 2. The order still has remaining days
+      // 3. The order hasn't completed its duration
+      const isNewDay = todayKey !== lastProcessedDayKey;
+      const hasRemainingDays = order.completedDays < order.duration;
 
-        if (profitDays > 0) {
-          // Process each day individually - ONE DAILY_PROFIT transaction per day
-          for (let day = 0; day < profitDays; day++) {
-            const profitAmount = order.dailyProfitPerDay;
-            const newCompletedDays = order.completedDays + day + 1;
-            const newRemainingDays = Math.max(0, order.duration - newCompletedDays);
-            const newCurrentProfit = order.currentProfit + profitAmount * (day + 1);
+      if (isNewDay && hasRemainingDays) {
+        // Process exactly ONE day of profit per calendar day
+        const profitAmount = order.dailyProfitPerDay;
+        const newCompletedDays = order.completedDays + 1;
+        const newRemainingDays = Math.max(0, order.duration - newCompletedDays);
+        const newCurrentProfit = order.currentProfit + profitAmount;
 
-            await prisma.$transaction(async (tx) => {
-              // 1. Credit ONLY Ongoing Wallet
-              await tx.wallet.update({
-                where: { userId: order.userId },
-                data: { ongoing: { increment: profitAmount } },
-              });
+        await prisma.$transaction(async (tx) => {
+          // 1. Credit ONLY Ongoing Wallet
+          await tx.wallet.update({
+            where: { userId: order.userId },
+            data: { ongoing: { increment: profitAmount } },
+          });
 
-              // 2. Update order progress
-              await tx.investmentOrder.update({
-                where: { id: order.id },
-                data: {
-                  completedDays: newCompletedDays,
-                  remainingDays: newRemainingDays,
-                  currentProfit: newCurrentProfit,
-                  lastProfitDate: new Date(start.getTime() + (day + 1) * 24 * 60 * 60 * 1000),
-                },
-              });
+          // 2. Update order progress
+          await tx.investmentOrder.update({
+            where: { id: order.id },
+            data: {
+              completedDays: newCompletedDays,
+              remainingDays: newRemainingDays,
+              currentProfit: newCurrentProfit,
+              lastProfitDate: now,
+            },
+          });
 
-              // 3. Create ONE DAILY_PROFIT transaction for this day
-              await tx.transaction.create({
-                data: {
-                  userId: order.userId,
-                  type: 'DAILY_PROFIT',
-                  amount: profitAmount,
-                  method: 'system',
-                  reference: 'PROFIT-' + order.id.slice(-8) + '-' + Date.now() + '-' + day,
-                  status: 'SUCCESS',
-                },
-              });
-            });
-          }
-        }
+          // 3. Create ONE DAILY_PROFIT transaction for this day
+          await tx.transaction.create({
+            data: {
+              userId: order.userId,
+              type: 'DAILY_PROFIT',
+              amount: profitAmount,
+              method: 'system',
+              reference: 'PROFIT-' + order.id.slice(-8) + '-' + todayKey.replace(/-/g, ''),
+              status: 'SUCCESS',
+            },
+          });
+        });
 
-        // Check if investment is complete (daysCompleted == duration OR remainingDays == 0)
+        // Check if investment is now complete
         const freshOrder = await prisma.investmentOrder.findUnique({ where: { id: order.id } });
         if (freshOrder && freshOrder.status === 'ACTIVE' && (freshOrder.completedDays >= freshOrder.duration || freshOrder.remainingDays <= 0)) {
           // Final settlement - transfer Ongoing Wallet to Main Wallet
